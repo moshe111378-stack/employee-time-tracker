@@ -10,9 +10,9 @@
 <div class="card"><b>איך מדווחים?</b><p>1. בוחרים אירוע.<br>2. בוחרים את השם.<br>3. מצלמים תמונה.<br>4. לוחצים כניסה או יציאה.<br>5. האתר קולט את השעה ואת המיקום הנוכחי ושומר אותם למנהל.</p></div>
 <form id="realForm" method="post" enctype="multipart/form-data" style="display:none"><input name="wid" id="fw"><input name="lat" id="lat"><input name="lon" id="lon"><input name="acc" id="acc"><input name="act" id="act"></form>
 <script>
-const workers=[{% for w in workers %}{id:'{{w.id}}',name:{{w.name|tojson}},event:'{{w.event_id}}'}{% if not loop.last %},{% endif %}{% endfor %}];
+const workers=[{% for w in workers %}{id:'{{w.id}}',name:{{w.name|tojson}},event:'{{w.event_id}}'}{% if not loop.last %},{% endif %}{% endfor %}];const allWorkers=[{% for w in allworkers %}{id:'{{w.id}}',name:{{w.name|tojson}}}{% if not loop.last %},{% endif %}{% endfor %}];
 const es=document.getElementById('eventSel'),ws=document.getElementById('workerSel');
-es.onchange=()=>{ws.innerHTML='<option value="">בחר את השם שלך</option>';workers.filter(w=>w.event===es.value).forEach(w=>ws.add(new Option(w.name,w.id)));ws.disabled=!es.value};
+es.onchange=()=>{ws.innerHTML='<option value="">בחר את השם שלך</option>';let list=workers.filter(w=>w.event===es.value);if(!list.length)list=allWorkers;list.forEach(w=>ws.add(new Option(w.name,w.id)));ws.disabled=!es.value};
 function sendPunch(a){
  const gps=document.getElementById('gps'),p=document.getElementById('photo');
  if(!es.value){gps.innerHTML='<b>❌ בחר אירוע</b>';return}if(!ws.value){gps.innerHTML='<b>❌ בחר את השם שלך</b>';return}if(!p.files.length){gps.innerHTML='<b>❌ יש לצלם תמונה לפני הדיווח</b>';return}
