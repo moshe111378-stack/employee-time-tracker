@@ -49,7 +49,8 @@ def home():
  workers=c.execute('select id,name from workers order by name').fetchall()
  assignments=c.execute('select ew.worker_id,ew.event_id,e.name event_name from ew join events e on e.id=ew.event_id where e.active=1 order by e.name').fetchall()
  c.close()
- return render_template('home.html',workers=workers,assignments=assignments)
+ success=session.pop('attendance_success',None)
+ return render_template('home.html',workers=workers,assignments=assignments,success=success)
 @app.after_request
 def no_cache(resp):
  if request.path.startswith('/static/') or request.path=='/':
@@ -70,7 +71,7 @@ def event(e):
   result_type=request.form['act'];total='';
   if result_type=='out' and openr:
    end=datetime.now();start=datetime.fromisoformat(openr['cin']);mins=max(0,int((end-start).total_seconds()/60));total=f'{mins//60}:{mins%60:02d}'
-  c.close();return redirect('/?success='+result_type+'&total='+total)
+  c.close();session['attendance_success']={'type':result_type,'total':total,'time':datetime.now().strftime('%H:%M')};return redirect('/')
  c.close();return render_template('event.html',event=ev,workers=ws)
 @app.route('/admin/login',methods=['GET','POST'])
 def login():
