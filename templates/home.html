@@ -1,22 +1,18 @@
 {% extends 'base.html' %}{% block c %}
-<h1>דיווח נוכחות</h1><p class="muted">בחר את השם שלך. האירוע שאליו המנהל שייך אותך יופיע אוטומטית.</p>
+<h1>דיווח נוכחות</h1><p class="muted">בחר את השם שלך. יוצגו רק האירועים שאליהם המנהל שייך אותך.</p>
 <div class="card">
-<label>👤 שם העובד<select id="workerSel" required><option value="">בחר את השם שלך</option>{% for w in workers %}<option value="{{w.id}}" data-event="{{w.event_id}}" data-eventname="{{w.event_name}}">{{w.name}}</option>{% endfor %}</select></label>
-<div id="eventBox" class="gps"><b>📅 האירוע שלך</b><br><span>לאחר בחירת השם יוצג כאן האירוע שאליו שויכת.</span></div>
+<label>👤 שם העובד<select id="workerSel"><option value="">בחר את השם שלך</option></select></label>
+<div id="eventWrap" style="display:none"><label>📅 האירוע שלך<select id="eventSel"></select></label></div>
+<div id="eventBox" class="gps"><b>📅 האירוע שלך</b><br><span>בחר את השם שלך.</span></div>
 <label>📷 תמונה<input id="photo" type="file" accept="image/*" capture="environment" required></label>
-<div id="gps" class="gps"><b>📍 מיקום נוכחי</b><br><span>ייקלט אוטומטית בזמן הדיווח. אין אפשרות לבחור מיקום במפה או להקליד מיקום.</span></div>
+<div id="gps" class="gps"><b>📍 מיקום נוכחי</b><br><span>ייקלט אוטומטית בזמן הדיווח. העובד אינו יכול לבחור או לשנות מיקום.</span></div>
 <div class="actions"><button class="in" onclick="sendPunch('in')">🟢 כניסה</button><button class="out" onclick="sendPunch('out')">🔴 יציאה</button></div>
 </div>
-<div class="card"><b>איך מדווחים?</b><p>בחר את השם שלך → ודא שהאירוע הנכון הופיע → צלם תמונה → לחץ כניסה או יציאה. השעה והמיקום הנוכחי נשמרים אוטומטית.</p></div>
 <script>
-const ws=document.getElementById('workerSel'),eb=document.getElementById('eventBox'),gps=document.getElementById('gps'),p=document.getElementById('photo');
-ws.onchange=()=>{const o=ws.options[ws.selectedIndex];eb.innerHTML=o.value?'<b>✅ אתה משויך לאירוע</b><br>'+o.dataset.eventname:'<b>📅 האירוע שלך</b><br>בחר את השם שלך'};
-function sendPunch(a){
- const o=ws.options[ws.selectedIndex];if(!o||!o.value){gps.innerHTML='<b>❌ בחר את השם שלך</b>';return}
- if(!o.dataset.event){gps.innerHTML='<b>❌ העובד לא משויך לאירוע. פנה למנהל.</b>';return}
- if(!p.files.length){gps.innerHTML='<b>❌ יש לצלם תמונה לפני הדיווח</b>';return}
- if(!navigator.geolocation){gps.innerHTML='<b>❌ אין תמיכה במיקום</b>';return}
- gps.innerHTML='<b>📍 קולט מיקום נוכחי...</b>';
- navigator.geolocation.getCurrentPosition(pos=>{const fd=new FormData();fd.append('wid',o.value);fd.append('act',a);fd.append('lat',pos.coords.latitude);fd.append('lon',pos.coords.longitude);fd.append('acc',Math.round(pos.coords.accuracy));fd.append('photo',p.files[0]);gps.innerHTML='<b>✅ המיקום נקלט — שולח דיווח...</b>';fetch('/event/'+o.dataset.event,{method:'POST',body:fd,redirect:'follow'}).then(r=>{if(!r.ok)throw 0;location.href='/'}).catch(()=>gps.innerHTML='<b>❌ הדיווח לא נשלח. נסה שוב.</b>')},()=>gps.innerHTML='<b>❌ יש לאשר גישה למיקום הנוכחי כדי לדווח</b>',{enableHighAccuracy:true,maximumAge:0,timeout:15000});
-}
+const assignments=[{% for w in workers %}{wid:'{{w.id}}',name:{{w.name|tojson}},eid:'{{w.event_id}}',event:{{w.event_name|tojson}}}{% if not loop.last %},{% endif %}{% endfor %}];
+const ws=document.getElementById('workerSel'),es=document.getElementById('eventSel'),wrap=document.getElementById('eventWrap'),box=document.getElementById('eventBox'),gps=document.getElementById('gps'),photo=document.getElementById('photo');
+[...new Map(assignments.map(x=>[x.wid,x])).values()].forEach(x=>ws.add(new Option(x.name,x.wid)));
+function renderEvent(){const o=es.options[es.selectedIndex];if(o&&o.value)box.innerHTML='<b>✅ אירוע נבחר</b><br>'+o.text}
+ws.onchange=()=>{es.innerHTML='';const a=assignments.filter(x=>x.wid===ws.value);if(!a.length){wrap.style.display='none';box.innerHTML='<b>❌ העובד לא משויך לאירוע</b>';return}a.forEach(x=>es.add(new Option(x.event,x.eid)));wrap.style.display=a.length>1?'block':'none';es.selectedIndex=0;renderEvent()};es.onchange=renderEvent;
+function sendPunch(a){if(!ws.value||!es.value){gps.innerHTML='<b>❌ בחר שם ואירוע</b>';return}if(!photo.files.length){gps.innerHTML='<b>❌ יש לצלם תמונה לפני הדיווח</b>';return}if(!navigator.geolocation){gps.innerHTML='<b>❌ אין תמיכה במיקום</b>';return}gps.innerHTML='<b>📍 קולט מיקום נוכחי...</b>';navigator.geolocation.getCurrentPosition(pos=>{const fd=new FormData();fd.append('wid',ws.value);fd.append('act',a);fd.append('lat',pos.coords.latitude);fd.append('lon',pos.coords.longitude);fd.append('acc',Math.round(pos.coords.accuracy));fd.append('photo',photo.files[0]);fetch('/event/'+es.value,{method:'POST',body:fd,redirect:'follow'}).then(r=>{if(!r.ok)throw 0;location.href='/'}).catch(()=>gps.innerHTML='<b>❌ הדיווח לא נשלח</b>')},()=>gps.innerHTML='<b>❌ יש לאשר גישה למיקום הנוכחי</b>',{enableHighAccuracy:true,maximumAge:0,timeout:15000})}
 </script>{% endblock %}
