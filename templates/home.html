@@ -1,0 +1,1 @@
+{% extends 'base.html' %}{% block c %}<h1>בחר אירוע</h1><p>בחר את האירוע שבו אתה עובד כדי לדווח כניסה או יציאה.</p><div class="grid">{% for e in events %}<a class="event" href="/event/{{e.id}}"><b>{{e.name}}</b><span>{{e.date or ''}}</span></a>{% else %}<div class="panel">אין כרגע אירועים פעילים.</div>{% endfor %}</div>{% endblock %}
