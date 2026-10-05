@@ -96,6 +96,18 @@ def logout():session.clear();return redirect('/')
 @adm
 def admin():
  c=con();E=c.execute('select * from events order by id desc').fetchall();W=c.execute('select * from workers order by name').fetchall();A=c.execute('select id,name,user from admins').fetchall();O=c.execute("select a.*,w.name,e.name event_name from att a join workers w on w.id=a.worker_id join events e on e.id=a.event_id where a.cout is null order by a.cin").fetchall();now=datetime.now();active=[dict(x,minutes=max(0,int((now-datetime.fromisoformat(x['cin'])).total_seconds()/60))) for x in O];alerts=[x for x in active if x['minutes']>=480];c.close();return render_template('admin.html',events=E,workers=W,admins=A,active=active,alerts=alerts,admin_name=session.get('aname','מנהל'))
+@app.get('/admin/events')
+@adm
+def admin_events():
+ c=con();E=c.execute('select * from events order by id desc').fetchall();c.close();return render_template('admin_events.html',events=E)
+@app.get('/admin/workers')
+@adm
+def admin_workers():
+ c=con();W=c.execute('select * from workers order by name').fetchall();c.close();return render_template('admin_workers.html',workers=W)
+@app.get('/admin/admins')
+@adm
+def admin_admins():
+ c=con();A=c.execute('select id,name,user from admins').fetchall();c.close();return render_template('admin_admins.html',admins=A)
 @app.post('/admin/add-event')
 @adm
 def ae():
