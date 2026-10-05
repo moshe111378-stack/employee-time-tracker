@@ -101,9 +101,14 @@ def ae():
 @adm
 def aw():
  c=con();cur=c.execute('insert into workers(name,phone) values(?,?)',(request.form['name'],request.form.get('phone')));wid=cur.lastrowid
- # Auto-assign a new worker when there is exactly one active event, while keeping existing assignments intact
- es=c.execute('select id from events where active=1').fetchall()
- if len(es)==1 and c.execute('select count(*) n from ew where event_id=?',(es[0]['id'],)).fetchone()['n']<20:c.execute('insert or ignore into ew values(?,?)',(es[0]['id'],wid))
+ eid=request.form.get('event_id')
+ if eid:
+  n=c.execute('select count(*) n from ew where event_id=?',(eid,)).fetchone()['n']
+  if n<20:c.execute('insert or ignore into ew values(?,?)',(eid,wid))
+  else:flash('העובד נוסף, אך האירוע כבר כולל 20 עובדים')
+ else:
+  es=c.execute('select id from events where active=1').fetchall()
+  if len(es)==1 and c.execute('select count(*) n from ew where event_id=?',(es[0]['id'],)).fetchone()['n']<20:c.execute('insert or ignore into ew values(?,?)',(es[0]['id'],wid))
  c.commit();c.close();return redirect('/admin')
 @app.post('/admin/worker/<int:w>/edit')
 @adm
