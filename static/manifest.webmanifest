@@ -1,0 +1,11 @@
+{
+  "name": "ZIBALD SECURITY | אבטחה זיבלד",
+  "short_name": "ZIBALD",
+  "description": "מערכת נוכחות עובדים - אבטחה זיבלד",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#020817",
+  "theme_color": "#071426",
+  "orientation": "portrait-primary"
+}
