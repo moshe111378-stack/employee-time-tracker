@@ -12,6 +12,11 @@ def init():
  if c.execute('select count(*) n from admins').fetchone()['n']==0:c.execute('insert into admins(name,user,pw) values(?,?,?)',('מנהל ראשי',os.getenv('ADMIN_USER','admin'),generate_password_hash(os.getenv('ADMIN_PASSWORD','change-this-password'))))
  c.commit();c.close()
 init()
+# PWA test-only manager account (isolated test service)
+_t=con()
+if not _t.execute('select 1 from admins where user=?',('testadmin',)).fetchone():
+ _t.execute('insert into admins(name,user,pw) values(?,?,?)',('מנהל בדיקה','testadmin',generate_password_hash('ZibaldTest2026!')));_t.commit()
+_t.close()
 # One-time safe assignment: when exactly one active event exists, attach existing unassigned workers to it (up to 20)
 _fix=con();_es=_fix.execute('select id from events where active=1').fetchall()
 if len(_es)==1:
