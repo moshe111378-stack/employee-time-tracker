@@ -28,6 +28,12 @@ def dur(a,b):
  if not b:return 'פעיל'
  d=datetime.fromisoformat(b)-datetime.fromisoformat(a);m=int(d.total_seconds()/60);return f'{m//60}:{m%60:02d}'
 app.jinja_env.globals['dur']=dur
+@app.after_request
+def no_cache_assets(r):
+ if request.path.startswith('/static/'):
+  r.headers['Cache-Control']='no-store, no-cache, must-revalidate, max-age=0'
+  r.headers['Pragma']='no-cache'
+ return r
 @app.route('/',methods=['GET','POST'])
 def home():
  c=con();events=c.execute('select * from events where active=1 order by id desc').fetchall()
