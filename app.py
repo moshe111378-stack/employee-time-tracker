@@ -1,0 +1,93 @@
+import os,sqlite3,uuid
+from datetime import datetime
+from functools import wraps
+from flask import *
+from werkzeug.security import generate_password_hash,check_password_hash
+app=Flask(__name__);app.secret_key=os.getenv('SECRET_KEY','change-me')
+DATA=os.getenv('DATA_DIR','/data');os.makedirs(DATA,exist_ok=True);UP=os.path.join(DATA,'uploads');os.makedirs(UP,exist_ok=True);DB=os.path.join(DATA,'hours.db')
+def con(): c=sqlite3.connect(DB);c.row_factory=sqlite3.Row;return c
+def init():
+ c=con();c.executescript('CREATE TABLE IF NOT EXISTS admins(id INTEGER PRIMARY KEY,name TEXT,user TEXT UNIQUE,pw TEXT);CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY,name TEXT,date TEXT,active INTEGER DEFAULT 1);CREATE TABLE IF NOT EXISTS workers(id INTEGER PRIMARY KEY,name TEXT,phone TEXT);CREATE TABLE IF NOT EXISTS ew(event_id INTEGER,worker_id INTEGER,PRIMARY KEY(event_id,worker_id));CREATE TABLE IF NOT EXISTS att(id INTEGER PRIMARY KEY,event_id INTEGER,worker_id INTEGER,cin TEXT,cout TEXT,pinphoto TEXT,poutphoto TEXT);')
+ if c.execute('select count(*) n from admins').fetchone()['n']==0:c.execute('insert into admins(name,user,pw) values(?,?,?)',('מנהל ראשי',os.getenv('ADMIN_USER','admin'),generate_password_hash(os.getenv('ADMIN_PASSWORD','change-this-password'))))
+ c.commit();c.close()
+init()
+def adm(f):
+ @wraps(f)
+ def w(*a,**k):return f(*a,**k) if session.get('aid') else redirect('/admin/login')
+ return w
+def photo(x):
+ if not x or not x.filename:return None
+ n=uuid.uuid4().hex+'.jpg';x.save(os.path.join(UP,n));return n
+def dur(a,b):
+ if not b:return 'פעיל'
+ d=datetime.fromisoformat(b)-datetime.fromisoformat(a);m=int(d.total_seconds()/60);return f'{m//60}:{m%60:02d}'
+app.jinja_env.globals['dur']=dur
+@app.get('/')
+def home():
+ c=con();e=c.execute('select * from events where active=1 order by id desc').fetchall();c.close();return render_template('home.html',events=e)
+@app.route('/event/<int:e>',methods=['GET','POST'])
+def event(e):
+ c=con();ev=c.execute('select * from events where id=? and active=1',(e,)).fetchone();ws=c.execute('select w.* from workers w join ew on w.id=ew.worker_id where ew.event_id=? order by w.name',(e,)).fetchall()
+ if not ev:c.close();abort(404)
+ if request.method=='POST':
+  wid=request.form.get('wid');w=c.execute('select * from workers where id=?',(wid,)).fetchone();openr=c.execute('select * from att where event_id=? and worker_id=? and cout is null order by id desc limit 1',(e,wid)).fetchone()
+  if not w:flash('עובד לא נמצא')
+  elif request.form['act']=='in' and openr:flash('כבר קיימת כניסה פתוחה')
+  elif request.form['act']=='in':c.execute('insert into att(event_id,worker_id,cin,pinphoto) values(?,?,?,?)',(e,wid,datetime.now().isoformat(timespec='seconds'),photo(request.files.get('photo'))));c.commit();flash('הכניסה נרשמה')
+  elif not openr:flash('אין כניסה פתוחה לסגירה')
+  else:c.execute('update att set cout=?,poutphoto=? where id=?',(datetime.now().isoformat(timespec='seconds'),photo(request.files.get('photo')),openr['id']));c.commit();flash('היציאה נרשמה')
+  c.close();return redirect(f'/event/{e}')
+ c.close();return render_template('event.html',event=ev,workers=ws)
+@app.route('/admin/login',methods=['GET','POST'])
+def login():
+ if request.method=='POST':
+  c=con();a=c.execute('select * from admins where user=?',(request.form['user'],)).fetchone();c.close()
+  if a and check_password_hash(a['pw'],request.form['pw']):session['aid']=a['id'];return redirect('/admin')
+  flash('פרטי כניסה שגויים')
+ return render_template('login.html')
+@app.get('/admin/logout')
+def logout():session.clear();return redirect('/')
+@app.get('/admin')
+@adm
+def admin():
+ c=con();E=c.execute('select * from events order by id desc').fetchall();W=c.execute('select * from workers order by name').fetchall();A=c.execute('select id,name,user from admins').fetchall();c.close();return render_template('admin.html',events=E,workers=W,admins=A)
+@app.post('/admin/add-event')
+@adm
+def ae():
+ c=con();n=c.execute('select count(*) n from events').fetchone()['n']
+ if n>=20:flash('מקסימום 20 אירועים')
+ else:c.execute('insert into events(name,date) values(?,?)',(request.form['name'],request.form.get('date')));c.commit()
+ c.close();return redirect('/admin')
+@app.post('/admin/add-worker')
+@adm
+def aw():
+ c=con();c.execute('insert into workers(name,phone) values(?,?)',(request.form['name'],request.form.get('phone')));c.commit();c.close();return redirect('/admin')
+@app.post('/admin/worker/<int:w>/edit')
+@adm
+def edit_worker(w):
+ c=con();c.execute('update workers set name=?,phone=? where id=?',(request.form['name'],request.form.get('phone'),w));c.commit();c.close();flash('פרטי העובד עודכנו');return redirect('/admin')
+@app.post('/admin/worker/<int:w>/delete')
+@adm
+def delete_worker(w):
+ c=con();c.execute('delete from ew where worker_id=?',(w,));c.execute('delete from workers where id=?',(w,));c.commit();c.close();flash('העובד נמחק');return redirect('/admin')
+@app.post('/admin/add-admin')
+@adm
+def aa():
+ c=con();n=c.execute('select count(*) n from admins').fetchone()['n']
+ if n>=10:flash('מקסימום 10 מנהלים')
+ else:c.execute('insert into admins(name,user,pw) values(?,?,?)',(request.form['name'],request.form['user'],generate_password_hash(request.form['pw'])));c.commit()
+ c.close();return redirect('/admin')
+@app.route('/admin/event/<int:e>',methods=['GET','POST'])
+@adm
+def ea(e):
+ c=con()
+ if request.method=='POST':
+  n=c.execute('select count(*) n from ew where event_id=?',(e,)).fetchone()['n']
+  if n>=20:flash('מקסימום 20 עובדים באירוע')
+  else:c.execute('insert or ignore into ew values(?,?)',(e,request.form['wid']));c.commit()
+ ev=c.execute('select * from events where id=?',(e,)).fetchone();W=c.execute('select * from workers order by name').fetchall();S=c.execute('select w.* from workers w join ew on w.id=ew.worker_id where ew.event_id=?',(e,)).fetchall();R=c.execute('select a.*,w.name from att a join workers w on w.id=a.worker_id where a.event_id=? order by a.id desc',(e,)).fetchall();c.close();return render_template('event_admin.html',event=ev,workers=W,assigned=S,rows=R)
+@app.get('/uploads/<n>')
+@adm
+def uploads(n):return send_from_directory(UP,n)
+@app.get('/health')
+def health():return {'ok':True}
