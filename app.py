@@ -99,7 +99,7 @@ def admin():
 @app.get('/admin/events')
 @adm
 def admin_events():
- c=con();E=c.execute('select * from events order by id desc').fetchall();c.close();return render_template('admin_events.html',events=E)
+ c=con();E=c.execute('select * from events order by id desc').fetchall();W=c.execute('select * from workers order by name').fetchall();c.close();return render_template('admin_events.html',events=E,workers=W)
 @app.get('/admin/workers')
 @adm
 def admin_workers():
@@ -113,7 +113,10 @@ def admin_admins():
 def ae():
  c=con();n=c.execute('select count(*) n from events').fetchone()['n']
  if n>=100:flash('מקסימום 100 אירועים')
- else:c.execute('insert into events(name,date) values(?,?)',(request.form['name'],request.form.get('date')));c.commit()
+ else:
+  cur=c.execute('insert into events(name,date) values(?,?)',(request.form['name'],request.form.get('date')));eid=cur.lastrowid
+  for wid in request.form.getlist('worker_ids')[:50]:c.execute('insert or ignore into ew values(?,?)',(eid,wid))
+  c.commit()
  c.close();return redirect('/admin')
 @app.post('/admin/add-worker')
 @adm
