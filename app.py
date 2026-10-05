@@ -91,16 +91,7 @@ def ae():
 @app.post('/admin/add-worker')
 @adm
 def aw():
- c=con();cur=c.execute('insert into workers(name,phone) values(?,?)',(request.form['name'],request.form.get('phone')));wid=cur.lastrowid
- eid=request.form.get('event_id')
- if eid:
-  n=c.execute('select count(*) n from ew where event_id=?',(eid,)).fetchone()['n']
-  if n<20:c.execute('insert or ignore into ew values(?,?)',(eid,wid))
-  else:flash('העובד נוסף, אך האירוע כבר כולל 20 עובדים')
- else:
-  es=c.execute('select id from events where active=1').fetchall()
-  if len(es)==1 and c.execute('select count(*) n from ew where event_id=?',(es[0]['id'],)).fetchone()['n']<20:c.execute('insert or ignore into ew values(?,?)',(es[0]['id'],wid))
- c.commit();c.close();return redirect('/admin')
+ c=con();c.execute('insert into workers(name,phone) values(?,?)',(request.form['name'],request.form.get('phone')));c.commit();c.close();return redirect('/admin')
 @app.post('/admin/worker/<int:w>/edit')
 @adm
 def edit_worker(w):
@@ -121,10 +112,11 @@ def aa():
 def ea(e):
  c=con()
  if request.method=='POST':
-  n=c.execute('select count(*) n from ew where event_id=?',(e,)).fetchone()['n']
-  if n>=20:flash('מקסימום 20 עובדים באירוע')
-  else:c.execute('insert or ignore into ew values(?,?)',(e,request.form['wid']));c.commit()
- ev=c.execute('select * from events where id=?',(e,)).fetchone();W=c.execute('select * from workers order by name').fetchall();S=c.execute('select w.* from workers w join ew on w.id=ew.worker_id where ew.event_id=?',(e,)).fetchall();R=c.execute('select a.*,w.name from att a join workers w on w.id=a.worker_id where a.event_id=? order by a.id desc',(e,)).fetchall();c.close();return render_template('event_admin.html',event=ev,workers=W,assigned=S,rows=R)
+  selected=request.form.getlist('worker_ids')
+  c.execute('delete from ew where event_id=?',(e,))
+  for wid in selected[:20]:c.execute('insert or ignore into ew values(?,?)',(e,wid))
+  c.commit();flash('שיוכי העובדים נשמרו')
+ ev=c.execute('select * from events where id=?',(e,)).fetchone();W=c.execute('select * from workers order by name').fetchall();S=c.execute('select w.* from workers w join ew on w.id=ew.worker_id where ew.event_id=?',(e,)).fetchall();R=c.execute('select a.*,w.name from att a join workers w on w.id=a.worker_id where a.event_id=? order by a.id desc',(e,)).fetchall();c.close();return render_template('event_admin.html',event=ev,workers=W,assigned=S,rows=R,assigned_ids={str(x['id']) for x in S})
 @app.get('/uploads/<n>')
 @adm
 def uploads(n):return send_from_directory(UP,n)
