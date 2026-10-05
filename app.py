@@ -100,13 +100,16 @@ def admin():
 @adm
 def ae():
  c=con();n=c.execute('select count(*) n from events').fetchone()['n']
- if n>=20:flash('מקסימום 20 אירועים')
+ if n>=100:flash('מקסימום 100 אירועים')
  else:c.execute('insert into events(name,date) values(?,?)',(request.form['name'],request.form.get('date')));c.commit()
  c.close();return redirect('/admin')
 @app.post('/admin/add-worker')
 @adm
 def aw():
- c=con();c.execute('insert into workers(name,phone) values(?,?)',(request.form['name'],request.form.get('phone')));c.commit();c.close();return redirect('/admin')
+ c=con();n=c.execute('select count(*) n from workers').fetchone()['n']
+ if n>=500:flash('מקסימום 500 עובדים')
+ else:c.execute('insert into workers(name,phone) values(?,?)',(request.form['name'],request.form.get('phone')));c.commit()
+ c.close();return redirect('/admin')
 @app.post('/admin/worker/<int:w>/edit')
 @adm
 def edit_worker(w):
@@ -129,7 +132,7 @@ def ea(e):
  if request.method=='POST':
   selected=request.form.getlist('worker_ids')
   c.execute('delete from ew where event_id=?',(e,))
-  for wid in selected[:20]:c.execute('insert or ignore into ew values(?,?)',(e,wid))
+  for wid in selected[:50]:c.execute('insert or ignore into ew values(?,?)',(e,wid))
   c.commit();flash('שיוכי העובדים נשמרו')
  ev=c.execute('select * from events where id=?',(e,)).fetchone();W=c.execute('select * from workers order by name').fetchall();S=c.execute('select w.* from workers w join ew on w.id=ew.worker_id where ew.event_id=?',(e,)).fetchall();R=c.execute('select a.*,w.name,w.hourly_rate from att a join workers w on w.id=a.worker_id where a.event_id=? order by a.id desc',(e,)).fetchall();assigned_count=len(S);entered=len({x['worker_id'] for x in R});working=sum(1 for x in R if not x['cout']);finished=sum(1 for x in R if x['cout']);total_minutes=sum(max(0,int((datetime.fromisoformat(x['cout'])-datetime.fromisoformat(x['cin'])).total_seconds()/60)) for x in R if x['cout']);row_pay={};total_pay=0.0
  for x in R:
