@@ -65,9 +65,9 @@ def event(e):
   wid=request.form.get('wid');w=c.execute('select * from workers where id=?',(wid,)).fetchone();openr=c.execute('select * from att where event_id=? and worker_id=? and cout is null order by id desc limit 1',(e,wid)).fetchone()
   if not w:flash('עובד לא נמצא')
   elif request.form['act']=='in' and openr:flash('כבר קיימת כניסה פתוחה')
-  elif request.form['act']=='in':c.execute('insert into att(event_id,worker_id,cin,pinphoto,inlat,inlon,inacc) values(?,?,?,?,?,?,?)',(e,wid,datetime.now().isoformat(timespec='seconds'),photo(request.files.get('photo')),request.form.get('lat'),request.form.get('lon'),request.form.get('acc')));c.commit();flash('הכניסה נרשמה')
+  elif request.form['act']=='in':c.execute('insert into att(event_id,worker_id,cin,pinphoto,inlat,inlon,inacc) values(?,?,?,?,?,?,?)',(e,wid,datetime.now().isoformat(timespec='seconds'),photo(request.files.get('photo')),request.form.get('lat'),request.form.get('lon'),request.form.get('acc')));c.commit()
   elif not openr:flash('אין כניסה פתוחה לסגירה')
-  else:c.execute('update att set cout=?,poutphoto=?,outlat=?,outlon=?,outacc=? where id=?',(datetime.now().isoformat(timespec='seconds'),photo(request.files.get('photo')),request.form.get('lat'),request.form.get('lon'),request.form.get('acc'),openr['id']));c.commit();flash('היציאה נרשמה')
+  else:c.execute('update att set cout=?,poutphoto=?,outlat=?,outlon=?,outacc=? where id=?',(datetime.now().isoformat(timespec='seconds'),photo(request.files.get('photo')),request.form.get('lat'),request.form.get('lon'),request.form.get('acc'),openr['id']));c.commit()
   result_type=request.form['act'];total='';
   if result_type=='out' and openr:
    end=datetime.now();start=datetime.fromisoformat(openr['cin']);mins=max(0,int((end-start).total_seconds()/60));total=f'{mins//60}:{mins%60:02d}'
