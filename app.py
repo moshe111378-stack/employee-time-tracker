@@ -138,3 +138,8 @@ def edit_event(e):
 @adm
 def delete_event(e):
  c=con();c.execute('delete from ew where event_id=?',(e,));c.execute('delete from events where id=?',(e,));c.commit();c.close();flash('האירוע נמחק');return redirect('/admin')
+
+@app.post('/admin/event/<int:e>/reset-workers')
+@adm
+def reset_event_workers(e):
+ c=con();c.execute('delete from ew where event_id=?',(e,));c.commit();c.close();flash('כל שיוכי העובדים לאירוע אופסו. העובדים עצמם נשארו במערכת.');return redirect(f'/admin/event/{e}')
