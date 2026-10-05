@@ -9,9 +9,9 @@
 <div class="actions"><button class="in" onclick="sendPunch('in')">🟢 כניסה</button><button class="out" onclick="sendPunch('out')">🔴 יציאה</button></div>
 </div>
 <script>
-const assignments=[{% for w in workers %}{wid:'{{w.id}}',name:{{w.name|tojson}},eid:'{{w.event_id}}',event:{{w.event_name|tojson}}}{% if not loop.last %},{% endif %}{% endfor %}];
+const assignments=[{% for a in assignments %}{wid:'{{a.worker_id}}',eid:'{{a.event_id}}',event:{{a.event_name|tojson}}}{% if not loop.last %},{% endif %}{% endfor %}];
 const ws=document.getElementById('workerSel'),es=document.getElementById('eventSel'),wrap=document.getElementById('eventWrap'),box=document.getElementById('eventBox'),gps=document.getElementById('gps'),photo=document.getElementById('photo');
-[...new Map(assignments.map(x=>[x.wid,x])).values()].forEach(x=>ws.add(new Option(x.name,x.wid)));
+{% for w in workers %}ws.add(new Option({{w.name|tojson}},'{{w.id}}'));{% endfor %}
 function renderEvent(){const o=es.options[es.selectedIndex];if(o&&o.value)box.innerHTML='<b>✅ אירוע נבחר</b><br>'+o.text}
 ws.onchange=()=>{es.innerHTML='';const a=assignments.filter(x=>x.wid===ws.value);if(!a.length){wrap.style.display='none';box.innerHTML='<b>❌ העובד לא משויך לאירוע</b>';return}a.forEach(x=>es.add(new Option(x.event,x.eid)));wrap.style.display=a.length>1?'block':'none';es.selectedIndex=0;renderEvent()};es.onchange=renderEvent;
 function sendPunch(a){if(!ws.value||!es.value){gps.innerHTML='<b>❌ בחר שם ואירוע</b>';return}if(!photo.files.length){gps.innerHTML='<b>❌ יש לצלם תמונה לפני הדיווח</b>';return}if(!navigator.geolocation){gps.innerHTML='<b>❌ אין תמיכה במיקום</b>';return}gps.innerHTML='<b>📍 קולט מיקום נוכחי...</b>';navigator.geolocation.getCurrentPosition(pos=>{const fd=new FormData();fd.append('wid',ws.value);fd.append('act',a);fd.append('lat',pos.coords.latitude);fd.append('lon',pos.coords.longitude);fd.append('acc',Math.round(pos.coords.accuracy));fd.append('photo',photo.files[0]);fetch('/event/'+es.value,{method:'POST',body:fd,redirect:'follow'}).then(r=>{if(!r.ok)throw 0;location.href='/'}).catch(()=>gps.innerHTML='<b>❌ הדיווח לא נשלח</b>')},()=>gps.innerHTML='<b>❌ יש לאשר גישה למיקום הנוכחי</b>',{enableHighAccuracy:true,maximumAge:0,timeout:15000})}
