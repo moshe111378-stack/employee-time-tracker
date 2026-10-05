@@ -7,10 +7,16 @@ app=Flask(__name__);app.secret_key=os.getenv('SECRET_KEY','change-me')
 DATA=os.getenv('DATA_DIR','/data');os.makedirs(DATA,exist_ok=True);UP=os.path.join(DATA,'uploads');os.makedirs(UP,exist_ok=True);DB=os.path.join(DATA,'hours.db')
 def con(): c=sqlite3.connect(DB);c.row_factory=sqlite3.Row;return c
 def init():
- c=con();c.executescript('CREATE TABLE IF NOT EXISTS admins(id INTEGER PRIMARY KEY,name TEXT,user TEXT UNIQUE,pw TEXT);CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY,name TEXT,date TEXT,active INTEGER DEFAULT 1);CREATE TABLE IF NOT EXISTS workers(id INTEGER PRIMARY KEY,name TEXT,phone TEXT);CREATE TABLE IF NOT EXISTS ew(event_id INTEGER,worker_id INTEGER,PRIMARY KEY(event_id,worker_id));CREATE TABLE IF NOT EXISTS att(id INTEGER PRIMARY KEY,event_id INTEGER,worker_id INTEGER,cin TEXT,cout TEXT,pinphoto TEXT,poutphoto TEXT);')
+ c=con();c.executescript('CREATE TABLE IF NOT EXISTS admins(id INTEGER PRIMARY KEY,name TEXT,user TEXT UNIQUE,pw TEXT);CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY,name TEXT,date TEXT,active INTEGER DEFAULT 1);CREATE TABLE IF NOT EXISTS workers(id INTEGER PRIMARY KEY,name TEXT,phone TEXT);CREATE TABLE IF NOT EXISTS ew(event_id INTEGER,worker_id INTEGER,PRIMARY KEY(event_id,worker_id));CREATE TABLE IF NOT EXISTS att(id INTEGER PRIMARY KEY,event_id INTEGER,worker_id INTEGER,cin TEXT,cout TEXT,pinphoto TEXT,poutphoto TEXT,inlat TEXT,inlon TEXT,inacc TEXT,outlat TEXT,outlon TEXT,outacc TEXT);')
  if c.execute('select count(*) n from admins').fetchone()['n']==0:c.execute('insert into admins(name,user,pw) values(?,?,?)',('מנהל ראשי',os.getenv('ADMIN_USER','admin'),generate_password_hash(os.getenv('ADMIN_PASSWORD','change-this-password'))))
  c.commit();c.close()
 init()
+# Safe migration for existing databases
+_m=con()
+for _col in ['inlat','inlon','inacc','outlat','outlon','outacc']:
+ try:_m.execute('alter table att add column '+_col+' TEXT')
+ except sqlite3.OperationalError:pass
+_m.commit();_m.close()
 def adm(f):
  @wraps(f)
  def w(*a,**k):return f(*a,**k) if session.get('aid') else redirect('/admin/login')
@@ -33,9 +39,9 @@ def event(e):
   wid=request.form.get('wid');w=c.execute('select * from workers where id=?',(wid,)).fetchone();openr=c.execute('select * from att where event_id=? and worker_id=? and cout is null order by id desc limit 1',(e,wid)).fetchone()
   if not w:flash('עובד לא נמצא')
   elif request.form['act']=='in' and openr:flash('כבר קיימת כניסה פתוחה')
-  elif request.form['act']=='in':c.execute('insert into att(event_id,worker_id,cin,pinphoto) values(?,?,?,?)',(e,wid,datetime.now().isoformat(timespec='seconds'),photo(request.files.get('photo'))));c.commit();flash('הכניסה נרשמה')
+  elif request.form['act']=='in':c.execute('insert into att(event_id,worker_id,cin,pinphoto,inlat,inlon,inacc) values(?,?,?,?,?,?,?)',(e,wid,datetime.now().isoformat(timespec='seconds'),photo(request.files.get('photo')),request.form.get('lat'),request.form.get('lon'),request.form.get('acc')));c.commit();flash('הכניסה נרשמה')
   elif not openr:flash('אין כניסה פתוחה לסגירה')
-  else:c.execute('update att set cout=?,poutphoto=? where id=?',(datetime.now().isoformat(timespec='seconds'),photo(request.files.get('photo')),openr['id']));c.commit();flash('היציאה נרשמה')
+  else:c.execute('update att set cout=?,poutphoto=?,outlat=?,outlon=?,outacc=? where id=?',(datetime.now().isoformat(timespec='seconds'),photo(request.files.get('photo')),request.form.get('lat'),request.form.get('lon'),request.form.get('acc'),openr['id']));c.commit();flash('היציאה נרשמה')
   c.close();return redirect(f'/event/{e}')
  c.close();return render_template('event.html',event=ev,workers=ws)
 @app.route('/admin/login',methods=['GET','POST'])
@@ -91,3 +97,12 @@ def ea(e):
 def uploads(n):return send_from_directory(UP,n)
 @app.get('/health')
 def health():return {'ok':True}
+
+@app.post('/admin/event/<int:e>/edit')
+@adm
+def edit_event(e):
+ c=con();c.execute('update events set name=?,date=? where id=?',(request.form['name'],request.form.get('date'),e));c.commit();c.close();flash('האירוע עודכן');return redirect('/admin')
+@app.post('/admin/event/<int:e>/delete')
+@adm
+def delete_event(e):
+ c=con();c.execute('delete from ew where event_id=?',(e,));c.execute('delete from events where id=?',(e,));c.commit();c.close();flash('האירוע נמחק');return redirect('/admin')
