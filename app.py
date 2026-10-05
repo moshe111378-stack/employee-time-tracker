@@ -25,6 +25,8 @@ _m=con()
 for _col in ['inlat','inlon','inacc','outlat','outlon','outacc']:
  try:_m.execute('alter table att add column '+_col+' TEXT')
  except sqlite3.OperationalError:pass
+try:_m.execute('alter table workers add column hourly_rate REAL')
+except sqlite3.OperationalError:pass
 _m.commit();_m.close()
 def adm(f):
  @wraps(f)
@@ -46,7 +48,7 @@ def no_cache_assets(r):
 @app.get('/')
 def home():
  c=con()
- workers=c.execute('select id,name from workers order by name').fetchall()
+ workers=c.execute('select id,name,hourly_rate from workers order by name').fetchall()
  assignments=c.execute('select ew.worker_id,ew.event_id,e.name event_name from ew join events e on e.id=ew.event_id where e.active=1 order by e.name').fetchall()
  c.close()
  success=session.pop('attendance_success',None)
@@ -62,7 +64,13 @@ def event(e):
  c=con();ev=c.execute('select * from events where id=? and active=1',(e,)).fetchone();ws=c.execute('select w.* from workers w join ew on w.id=ew.worker_id where ew.event_id=? order by w.name',(e,)).fetchall()
  if not ev:c.close();abort(404)
  if request.method=='POST':
-  wid=request.form.get('wid');w=c.execute('select * from workers where id=?',(wid,)).fetchone();openr=c.execute('select * from att where event_id=? and worker_id=? and cout is null order by id desc limit 1',(e,wid)).fetchone()
+  wid=request.form.get('wid');w=c.execute('select * from workers where id=?',(wid,)).fetchone();rate=request.form.get('hourly_rate')
+  if w and w['hourly_rate'] is None and rate:
+   try:
+    rv=float(rate)
+    if rv>0:c.execute('update workers set hourly_rate=? where id=?',(rv,wid));c.commit();w=c.execute('select * from workers where id=?',(wid,)).fetchone()
+   except ValueError:pass
+  openr=c.execute('select * from att where event_id=? and worker_id=? and cout is null order by id desc limit 1',(e,wid)).fetchone()
   if not w:flash('עובד לא נמצא')
   elif request.form['act']=='in' and openr:flash('כבר קיימת כניסה פתוחה')
   elif request.form['act']=='in':c.execute('insert into att(event_id,worker_id,cin,pinphoto,inlat,inlon,inacc) values(?,?,?,?,?,?,?)',(e,wid,datetime.now().isoformat(timespec='seconds'),photo(request.files.get('photo')),request.form.get('lat'),request.form.get('lon'),request.form.get('acc')));c.commit()
@@ -71,7 +79,9 @@ def event(e):
   result_type=request.form['act'];total='';
   if result_type=='out' and openr:
    end=datetime.now();start=datetime.fromisoformat(openr['cin']);mins=max(0,int((end-start).total_seconds()/60));total=f'{mins//60}:{mins%60:02d}'
-  c.close();return jsonify(ok=True,type=result_type,total=total,time=datetime.now().strftime('%H:%M')) if request.headers.get('X-Requested-With')=='fetch' else redirect('/')
+  pay='';hourly=w['hourly_rate'] if w else None
+  if result_type=='out' and openr and hourly:pay=f'{(mins/60)*float(hourly):.2f}'
+  c.close();return jsonify(ok=True,type=result_type,total=total,time=datetime.now().strftime('%H:%M'),hourly=hourly,pay=pay) if request.headers.get('X-Requested-With')=='fetch' else redirect('/')
  c.close();return render_template('event.html',event=ev,workers=ws)
 @app.route('/admin/login',methods=['GET','POST'])
 def login():
@@ -100,7 +110,7 @@ def aw():
 @app.post('/admin/worker/<int:w>/edit')
 @adm
 def edit_worker(w):
- c=con();c.execute('update workers set name=?,phone=? where id=?',(request.form['name'],request.form.get('phone'),w));c.commit();c.close();flash('פרטי העובד עודכנו');return redirect('/admin')
+ c=con();rate=request.form.get('hourly_rate');c.execute('update workers set name=?,phone=?,hourly_rate=? where id=?',(request.form['name'],request.form.get('phone'),float(rate) if rate else None,w));c.commit();c.close();flash('פרטי העובד עודכנו');return redirect('/admin')
 @app.post('/admin/worker/<int:w>/delete')
 @adm
 def delete_worker(w):
@@ -121,7 +131,7 @@ def ea(e):
   c.execute('delete from ew where event_id=?',(e,))
   for wid in selected[:20]:c.execute('insert or ignore into ew values(?,?)',(e,wid))
   c.commit();flash('שיוכי העובדים נשמרו')
- ev=c.execute('select * from events where id=?',(e,)).fetchone();W=c.execute('select * from workers order by name').fetchall();S=c.execute('select w.* from workers w join ew on w.id=ew.worker_id where ew.event_id=?',(e,)).fetchall();R=c.execute('select a.*,w.name from att a join workers w on w.id=a.worker_id where a.event_id=? order by a.id desc',(e,)).fetchall();assigned_count=len(S);entered=len({x['worker_id'] for x in R});working=sum(1 for x in R if not x['cout']);finished=sum(1 for x in R if x['cout']);total_minutes=sum(max(0,int((datetime.fromisoformat(x['cout'])-datetime.fromisoformat(x['cin'])).total_seconds()/60)) for x in R if x['cout']);summary={'assigned':assigned_count,'entered':entered,'working':working,'finished':finished,'total':f"{total_minutes//60}:{total_minutes%60:02d}"};c.close();return render_template('event_admin.html',event=ev,workers=W,assigned=S,rows=R,assigned_ids={str(x['id']) for x in S},summary=summary)
+ ev=c.execute('select * from events where id=?',(e,)).fetchone();W=c.execute('select * from workers order by name').fetchall();S=c.execute('select w.* from workers w join ew on w.id=ew.worker_id where ew.event_id=?',(e,)).fetchall();R=c.execute('select a.*,w.name,w.hourly_rate from att a join workers w on w.id=a.worker_id where a.event_id=? order by a.id desc',(e,)).fetchall();assigned_count=len(S);entered=len({x['worker_id'] for x in R});working=sum(1 for x in R if not x['cout']);finished=sum(1 for x in R if x['cout']);total_minutes=sum(max(0,int((datetime.fromisoformat(x['cout'])-datetime.fromisoformat(x['cin'])).total_seconds()/60)) for x in R if x['cout']);summary={'assigned':assigned_count,'entered':entered,'working':working,'finished':finished,'total':f"{total_minutes//60}:{total_minutes%60:02d}"};c.close();return render_template('event_admin.html',event=ev,workers=W,assigned=S,rows=R,assigned_ids={str(x['id']) for x in S},summary=summary)
 @app.get('/uploads/<n>')
 @adm
 def uploads(n):return send_from_directory(UP,n)
