@@ -11,6 +11,14 @@ def init():
  if c.execute('select count(*) n from admins').fetchone()['n']==0:c.execute('insert into admins(name,user,pw) values(?,?,?)',('מנהל ראשי',os.getenv('ADMIN_USER','admin'),generate_password_hash(os.getenv('ADMIN_PASSWORD','change-this-password'))))
  c.commit();c.close()
 init()
+# One-time safe assignment: when exactly one active event exists, attach existing unassigned workers to it (up to 20)
+_fix=con();_es=_fix.execute('select id from events where active=1').fetchall()
+if len(_es)==1:
+ _eid=_es[0]['id'];_count=_fix.execute('select count(*) n from ew where event_id=?',(_eid,)).fetchone()['n']
+ _missing=_fix.execute('select id from workers where id not in (select worker_id from ew where event_id=?) order by id',(_eid,)).fetchall()
+ for _w in _missing[:max(0,20-_count)]:_fix.execute('insert or ignore into ew values(?,?)',(_eid,_w['id']))
+ _fix.commit()
+_fix.close()
 # Safe migration for existing databases
 _m=con()
 for _col in ['inlat','inlon','inacc','outlat','outlon','outacc']:
