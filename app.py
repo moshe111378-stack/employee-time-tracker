@@ -151,6 +151,17 @@ def ea(e):
   if x['cout'] and x['hourly_rate']:
    mins=max(0,int((datetime.fromisoformat(x['cout'])-datetime.fromisoformat(x['cin'])).total_seconds()/60));pay=(mins/60)*float(x['hourly_rate']);row_pay[x['id']]=pay;total_pay+=pay
  summary={'assigned':assigned_count,'entered':entered,'working':working,'finished':finished,'total':f"{total_minutes//60}:{total_minutes%60:02d}",'pay':f'{total_pay:.2f}'};c.close();return render_template('event_admin.html',event=ev,workers=W,assigned=S,rows=R,assigned_ids={str(x['id']) for x in S},summary=summary,row_pay=row_pay)
+@app.post('/admin/event/<int:e>/report/<int:r>/delete')
+@adm
+def delete_report(e,r):
+ c=con();row=c.execute('select pinphoto,poutphoto from att where id=? and event_id=?',(r,e)).fetchone()
+ if row:
+  c.execute('delete from att where id=? and event_id=?',(r,e));c.commit()
+  for fn in (row['pinphoto'],row['poutphoto']):
+   if fn:
+    try:os.remove(os.path.join(UP,fn))
+    except OSError:pass
+ c.close();flash('הדוח נמחק');return redirect(f'/admin/event/{e}')
 @app.get('/uploads/<n>')
 @adm
 def uploads(n):return send_from_directory(UP,n)
