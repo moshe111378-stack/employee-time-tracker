@@ -67,7 +67,10 @@ def event(e):
   elif request.form['act']=='in':c.execute('insert into att(event_id,worker_id,cin,pinphoto,inlat,inlon,inacc) values(?,?,?,?,?,?,?)',(e,wid,datetime.now().isoformat(timespec='seconds'),photo(request.files.get('photo')),request.form.get('lat'),request.form.get('lon'),request.form.get('acc')));c.commit();flash('הכניסה נרשמה')
   elif not openr:flash('אין כניסה פתוחה לסגירה')
   else:c.execute('update att set cout=?,poutphoto=?,outlat=?,outlon=?,outacc=? where id=?',(datetime.now().isoformat(timespec='seconds'),photo(request.files.get('photo')),request.form.get('lat'),request.form.get('lon'),request.form.get('acc'),openr['id']));c.commit();flash('היציאה נרשמה')
-  c.close();return redirect(f'/event/{e}')
+  result_type=request.form['act'];total='';
+  if result_type=='out' and openr:
+   end=datetime.now();start=datetime.fromisoformat(openr['cin']);mins=max(0,int((end-start).total_seconds()/60));total=f'{mins//60}:{mins%60:02d}'
+  c.close();return redirect('/?success='+result_type+'&total='+total)
  c.close();return render_template('event.html',event=ev,workers=ws)
 @app.route('/admin/login',methods=['GET','POST'])
 def login():
