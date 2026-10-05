@@ -71,7 +71,7 @@ def event(e):
   result_type=request.form['act'];total='';
   if result_type=='out' and openr:
    end=datetime.now();start=datetime.fromisoformat(openr['cin']);mins=max(0,int((end-start).total_seconds()/60));total=f'{mins//60}:{mins%60:02d}'
-  c.close();session['attendance_success']={'type':result_type,'total':total,'time':datetime.now().strftime('%H:%M')};return redirect('/')
+  c.close();return jsonify(ok=True,type=result_type,total=total,time=datetime.now().strftime('%H:%M')) if request.headers.get('X-Requested-With')=='fetch' else redirect('/')
  c.close();return render_template('event.html',event=ev,workers=ws)
 @app.route('/admin/login',methods=['GET','POST'])
 def login():
