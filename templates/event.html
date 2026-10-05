@@ -1,1 +1,28 @@
-{% extends 'base.html' %}{% block c %}<h1>{{event.name}}</h1><p class="muted">בחר את השם שלך. המיקום נלקח רק מהמיקום הנוכחי של הטלפון בזמן הדיווח.</p><form class="card" id="punch" method="post" enctype="multipart/form-data"><label>שם העובד<select name="wid" required><option value="">בחר עובד</option>{% for w in workers %}<option value="{{w.id}}">{{w.name}}</option>{% endfor %}</select></label><label>📷 תמונה<input type="file" name="photo" accept="image/*" capture="environment"></label><input type="hidden" name="lat" id="lat"><input type="hidden" name="lon" id="lon"><input type="hidden" name="acc" id="acc"><div id="gps" class="gps">📍 המיקום הנוכחי ייקלט אוטומטית בעת הדיווח</div><div class="actions"><button class="in" name="act" value="in">כניסה</button><button class="out" name="act" value="out">יציאה</button></div></form><script>document.getElementById('punch').addEventListener('submit',function(e){if(this.dataset.gps)return;e.preventDefault();const f=this,b=e.submitter,g=document.getElementById('gps');g.textContent='📍 קולט מיקום נוכחי...';if(!navigator.geolocation){g.textContent='❌ אין תמיכה במיקום';return}navigator.geolocation.getCurrentPosition(p=>{lat.value=p.coords.latitude;lon.value=p.coords.longitude;acc.value=Math.round(p.coords.accuracy);g.textContent='✅ המיקום הנוכחי נקלט';f.dataset.gps='1';f.requestSubmit(b)},()=>g.textContent='❌ יש לאשר הרשאת מיקום כדי לדווח',{enableHighAccuracy:true,maximumAge:0,timeout:10000})})</script>{% endblock %}
+{% extends 'base.html' %}{% block c %}
+<h1>דיווח נוכחות</h1><p class="muted">{{event.name}} · בחר את השם שלך ודווח כניסה או יציאה.</p>
+<form class="card" id="punch" method="post" enctype="multipart/form-data">
+<label>👤 שם העובד<select name="wid" required><option value="">בחר את השם שלך</option>{% for w in workers %}<option value="{{w.id}}">{{w.name}}</option>{% endfor %}</select></label>
+<label>📷 תמונה מהשטח<input type="file" name="photo" accept="image/*" capture="environment" required></label>
+<div class="gps" id="gps"><b>📍 מיקום נוכחי</b><br><span>המיקום ייקלט אוטומטית מהטלפון בזמן הדיווח. אין אפשרות לבחור או להקליד מיקום.</span></div>
+<input type="hidden" name="lat" id="lat"><input type="hidden" name="lon" id="lon"><input type="hidden" name="acc" id="acc">
+<div class="actions"><button class="in" name="act" value="in">🟢 כניסה</button><button class="out" name="act" value="out">🔴 יציאה</button></div>
+</form>
+<div class="card"><b>איך זה עובד?</b><p>1. בוחרים את השם.<br>2. מצלמים תמונה.<br>3. לוחצים כניסה או יציאה.<br>4. האתר קולט באותו רגע את המיקום הנוכחי ושעת הדיווח.</p></div>
+<script>
+const form=document.getElementById('punch'),gps=document.getElementById('gps');
+form.addEventListener('submit',function(e){
+ if(form.dataset.ready==='1')return;
+ e.preventDefault();const btn=e.submitter;
+ const file=form.querySelector('input[type=file]');
+ if(!file.files.length){gps.innerHTML='<b>❌ חסרה תמונה</b><br>יש לצלם או לצרף תמונה לפני הדיווח.';return}
+ if(!navigator.geolocation){gps.innerHTML='<b>❌ אין תמיכה ב-GPS</b>';return}
+ gps.innerHTML='<b>📍 קולט מיקום נוכחי...</b><br>נא להמתין מספר שניות.';
+ navigator.geolocation.getCurrentPosition(p=>{
+  document.getElementById('lat').value=p.coords.latitude;
+  document.getElementById('lon').value=p.coords.longitude;
+  document.getElementById('acc').value=Math.round(p.coords.accuracy);
+  gps.innerHTML='<b>✅ המיקום הנוכחי נקלט</b><br>דיוק משוער: '+Math.round(p.coords.accuracy)+' מטר';
+  form.dataset.ready='1';form.requestSubmit(btn);
+ },()=>{gps.innerHTML='<b>❌ לא ניתן לבצע דיווח</b><br>יש לאשר לאתר גישה למיקום הנוכחי.'},{enableHighAccuracy:true,maximumAge:0,timeout:15000});
+});
+</script>{% endblock %}
