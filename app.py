@@ -1,7 +1,8 @@
 import os,sqlite3,uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 from flask import *
+import csv,io
 from werkzeug.security import generate_password_hash,check_password_hash
 app=Flask(__name__);app.secret_key=os.getenv('SECRET_KEY','change-me')
 DATA=os.getenv('DATA_DIR','/data');os.makedirs(DATA,exist_ok=True);UP=os.path.join(DATA,'uploads');os.makedirs(UP,exist_ok=True);DB=os.path.join(DATA,'hours.db')
@@ -72,7 +73,7 @@ def event(e):
 def login():
  if request.method=='POST':
   c=con();a=c.execute('select * from admins where user=?',(request.form['user'],)).fetchone();c.close()
-  if a and check_password_hash(a['pw'],request.form['pw']):session['aid']=a['id'];return redirect('/admin')
+  if a and check_password_hash(a['pw'],request.form['pw']):session['aid']=a['id'];session['aname']=a['name'];return redirect('/admin')
   flash('פרטי כניסה שגויים')
  return render_template('login.html')
 @app.get('/admin/logout')
@@ -80,7 +81,7 @@ def logout():session.clear();return redirect('/')
 @app.get('/admin')
 @adm
 def admin():
- c=con();E=c.execute('select * from events order by id desc').fetchall();W=c.execute('select * from workers order by name').fetchall();A=c.execute('select id,name,user from admins').fetchall();c.close();return render_template('admin.html',events=E,workers=W,admins=A)
+ c=con();E=c.execute('select * from events order by id desc').fetchall();W=c.execute('select * from workers order by name').fetchall();A=c.execute('select id,name,user from admins').fetchall();O=c.execute("select a.*,w.name,e.name event_name from att a join workers w on w.id=a.worker_id join events e on e.id=a.event_id where a.cout is null order by a.cin").fetchall();now=datetime.now();active=[dict(x,minutes=max(0,int((now-datetime.fromisoformat(x['cin'])).total_seconds()/60))) for x in O];alerts=[x for x in active if x['minutes']>=480];c.close();return render_template('admin.html',events=E,workers=W,admins=A,active=active,alerts=alerts,admin_name=session.get('aname','מנהל'))
 @app.post('/admin/add-event')
 @adm
 def ae():
@@ -116,7 +117,7 @@ def ea(e):
   c.execute('delete from ew where event_id=?',(e,))
   for wid in selected[:20]:c.execute('insert or ignore into ew values(?,?)',(e,wid))
   c.commit();flash('שיוכי העובדים נשמרו')
- ev=c.execute('select * from events where id=?',(e,)).fetchone();W=c.execute('select * from workers order by name').fetchall();S=c.execute('select w.* from workers w join ew on w.id=ew.worker_id where ew.event_id=?',(e,)).fetchall();R=c.execute('select a.*,w.name from att a join workers w on w.id=a.worker_id where a.event_id=? order by a.id desc',(e,)).fetchall();c.close();return render_template('event_admin.html',event=ev,workers=W,assigned=S,rows=R,assigned_ids={str(x['id']) for x in S})
+ ev=c.execute('select * from events where id=?',(e,)).fetchone();W=c.execute('select * from workers order by name').fetchall();S=c.execute('select w.* from workers w join ew on w.id=ew.worker_id where ew.event_id=?',(e,)).fetchall();R=c.execute('select a.*,w.name from att a join workers w on w.id=a.worker_id where a.event_id=? order by a.id desc',(e,)).fetchall();assigned_count=len(S);entered=len({x['worker_id'] for x in R});working=sum(1 for x in R if not x['cout']);finished=sum(1 for x in R if x['cout']);total_minutes=sum(max(0,int((datetime.fromisoformat(x['cout'])-datetime.fromisoformat(x['cin'])).total_seconds()/60)) for x in R if x['cout']);summary={'assigned':assigned_count,'entered':entered,'working':working,'finished':finished,'total':f"{total_minutes//60}:{total_minutes%60:02d}"};c.close();return render_template('event_admin.html',event=ev,workers=W,assigned=S,rows=R,assigned_ids={str(x['id']) for x in S},summary=summary)
 @app.get('/uploads/<n>')
 @adm
 def uploads(n):return send_from_directory(UP,n)
@@ -136,3 +137,11 @@ def delete_event(e):
 @adm
 def reset_event_workers(e):
  c=con();c.execute('delete from ew where event_id=?',(e,));c.commit();c.close();flash('כל שיוכי העובדים לאירוע אופסו. העובדים עצמם נשארו במערכת.');return redirect(f'/admin/event/{e}')
+
+@app.get('/admin/event/<int:e>/export.csv')
+@adm
+def export_event(e):
+ c=con();ev=c.execute('select * from events where id=?',(e,)).fetchone();rows=c.execute('select a.*,w.name from att a join workers w on w.id=a.worker_id where a.event_id=? order by a.id',(e,)).fetchall();c.close()
+ out=io.StringIO();out.write('\ufeff');w=csv.writer(out);w.writerow(['עובד','כניסה','יציאה','סהכ שעות','מיקום כניסה','מיקום יציאה'])
+ for r in rows:w.writerow([r['name'],r['cin'],r['cout'] or '',dur(r['cin'],r['cout']),f"{r['inlat'] or ''},{r['inlon'] or ''}",f"{r['outlat'] or ''},{r['outlon'] or ''}"])
+ return Response(out.getvalue(),mimetype='text/csv; charset=utf-8',headers={'Content-Disposition':f'attachment; filename=event-{e}-report.csv'})
