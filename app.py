@@ -42,22 +42,12 @@ def no_cache_assets(r):
   r.headers['Cache-Control']='no-store, no-cache, must-revalidate, max-age=0'
   r.headers['Pragma']='no-cache'
  return r
-@app.route('/',methods=['GET','POST'])
+@app.get('/')
 def home():
- c=con();events=c.execute('select * from events where active=1 order by id desc').fetchall()
- eid=request.form.get('event_id') if request.method=='POST' else (request.args.get('event_id') or (str(events[0]['id']) if events else None))
- workers=c.execute('select w.* from workers w join ew on w.id=ew.worker_id where ew.event_id=? order by w.name',(eid,)).fetchall() if eid else []
- if request.method=='POST':
-  wid=request.form.get('wid');w=c.execute('select * from workers where id=?',(wid,)).fetchone();openr=c.execute('select * from att where event_id=? and worker_id=? and cout is null order by id desc limit 1',(eid,wid)).fetchone()
-  if not w:flash('עובד לא נמצא')
-  elif not request.form.get('lat') or not request.form.get('lon'):flash('לא ניתן לדווח ללא מיקום נוכחי')
-  elif not request.files.get('photo') or not request.files.get('photo').filename:flash('לא ניתן לדווח ללא תמונה')
-  elif request.form['act']=='in' and openr:flash('כבר קיימת כניסה פתוחה')
-  elif request.form['act']=='in':c.execute('insert into att(event_id,worker_id,cin,pinphoto,inlat,inlon,inacc) values(?,?,?,?,?,?,?)',(eid,wid,datetime.now().isoformat(timespec='seconds'),photo(request.files.get('photo')),request.form.get('lat'),request.form.get('lon'),request.form.get('acc')));c.commit();flash('הכניסה נרשמה בהצלחה')
-  elif not openr:flash('אין כניסה פתוחה לסגירה')
-  else:c.execute('update att set cout=?,poutphoto=?,outlat=?,outlon=?,outacc=? where id=?',(datetime.now().isoformat(timespec='seconds'),photo(request.files.get('photo')),request.form.get('lat'),request.form.get('lon'),request.form.get('acc'),openr['id']));c.commit();flash('היציאה נרשמה בהצלחה')
-  c.close();return redirect('/?event_id='+str(eid))
- c.close();return render_template('home.html',events=events,workers=workers,selected_event=eid)
+ c=con()
+ workers=c.execute('select w.id,w.name,ew.event_id,e.name event_name from workers w join ew on w.id=ew.worker_id join events e on e.id=ew.event_id where e.active=1 order by w.name').fetchall()
+ c.close()
+ return render_template('home.html',workers=workers)
 @app.after_request
 def no_cache(resp):
  if request.path.startswith('/static/') or request.path=='/':
