@@ -45,7 +45,7 @@ def no_cache_assets(r):
 @app.get('/')
 def home():
  c=con()
- workers=c.execute('select w.id,w.name,ew.event_id,e.name event_name from workers w join ew on w.id=ew.worker_id join events e on e.id=ew.event_id where e.active=1 order by w.name').fetchall()
+ workers=c.execute('select w.id,w.name,ew.event_id,e.name event_name from workers w join ew on w.id=ew.worker_id join events e on e.id=ew.event_id where e.active=1 order by w.name,e.name').fetchall()
  c.close()
  return render_template('home.html',workers=workers)
 @app.after_request
