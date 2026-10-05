@@ -33,3 +33,5 @@ button,.excel-btn,.action-btn,.manager-entry{transition:transform .15s ease,filt
 .worker-search,.small-search{background:rgba(9,23,43,.92)}
 .rate-edit{display:flex;flex-direction:column;font-size:13px;color:#cbd5e1}
 @media(max-width:600px){main{padding:18px 14px}.card,.panel{padding:16px;border-radius:20px}.brand-panel{padding:22px}.brand-panel h1{font-size:28px}.logo{font-size:18px}.stats{gap:7px}.stats>div{padding:12px 6px}.stats b{font-size:23px}button,input,select{min-height:48px}.event-title-row{gap:8px}.report-head{align-items:flex-start}}
+
+.admin-menu{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0 24px}.admin-menu button{min-height:76px;border-radius:20px;font-size:18px;background:linear-gradient(145deg,#12386d,#1d4ed8);border:1px solid rgba(147,197,253,.22);box-shadow:0 12px 28px rgba(29,78,216,.22)}.admin-section{scroll-margin-top:90px}.admin-section>.panel{margin-top:0}@media(max-width:600px){.admin-menu{grid-template-columns:1fr;gap:9px}.admin-menu button{min-height:58px;font-size:17px}}
