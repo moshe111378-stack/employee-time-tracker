@@ -1,10 +1,11 @@
-import os,sqlite3,uuid
+import os,sqlite3,uuid,time
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import *
 import csv,io
 from werkzeug.security import generate_password_hash,check_password_hash
 app=Flask(__name__);app.secret_key=os.getenv('SECRET_KEY','change-me');app.permanent_session_lifetime=timedelta(days=365);app.config.update(SESSION_COOKIE_HTTPONLY=True,SESSION_COOKIE_SECURE=True,SESSION_COOKIE_SAMESITE='Lax')
+_login_attempts={}
 DATA=os.getenv('DATA_DIR','/data');os.makedirs(DATA,exist_ok=True);UP=os.path.join(DATA,'uploads');os.makedirs(UP,exist_ok=True);DB=os.path.join(DATA,'hours.db')
 def con(): c=sqlite3.connect(DB);c.row_factory=sqlite3.Row;return c
 def init():
@@ -39,6 +40,9 @@ def dur(a,b):
  if not b:return 'פעיל'
  d=datetime.fromisoformat(b)-datetime.fromisoformat(a);m=int(d.total_seconds()/60);return f'{m//60}:{m%60:02d}'
 app.jinja_env.globals['dur']=dur
+@app.after_request
+def security_headers(r):
+ r.headers['X-Content-Type-Options']='nosniff';r.headers['X-Frame-Options']='DENY';r.headers['Referrer-Policy']='same-origin';r.headers['Permissions-Policy']='camera=(self), geolocation=(self)';return r
 @app.after_request
 def no_cache_assets(r):
  if request.path.startswith('/static/'):
@@ -87,9 +91,11 @@ def event(e):
 def login():
  if request.method=='GET' and session.get('aid'):return redirect('/admin')
  if request.method=='POST':
+  ip=request.headers.get('X-Forwarded-For',request.remote_addr or '').split(',')[0].strip();now=time.time();attempts=[t for t in _login_attempts.get(ip,[]) if now-t<900]
+  if len(attempts)>=10:flash('יותר מדי ניסיונות כניסה. נסה שוב מאוחר יותר.');return render_template('login.html'),429
   c=con();a=c.execute('select * from admins where user=?',(request.form['user'],)).fetchone();c.close()
-  if a and check_password_hash(a['pw'],request.form['pw']):session['aid']=a['id'];session['aname']=a['name'];session.permanent=request.form.get('remember')=='1';return redirect('/admin')
-  flash('פרטי כניסה שגויים')
+  if a and check_password_hash(a['pw'],request.form['pw']):_login_attempts.pop(ip,None);session.clear();session['aid']=a['id'];session['aname']=a['name'];session.permanent=request.form.get('remember')=='1';return redirect('/admin')
+  _login_attempts[ip]=attempts+[now];flash('פרטי כניסה שגויים')
  return render_template('login.html')
 @app.get('/admin/logout')
 def logout():session.clear();return redirect('/')
