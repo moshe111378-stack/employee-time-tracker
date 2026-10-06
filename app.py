@@ -65,9 +65,10 @@ def home():
  c=con()
  workers=c.execute('select id,name,hourly_rate from workers order by name').fetchall()
  assignments=c.execute('select ew.worker_id,ew.event_id,e.name event_name from ew join events e on e.id=ew.event_id where e.active=1 order by e.name').fetchall()
+ open_shifts=c.execute('select worker_id,cin from att where cout is null order by id').fetchall();open_map={str(x[\'worker_id\']):x[\'cin\'] for x in open_shifts}
  c.close()
  success=session.pop('attendance_success',None)
- return render_template('home.html',workers=workers,assignments=assignments,success=success)
+ return render_template('home.html',workers=workers,assignments=assignments,success=success,open_map=open_map)
 @app.after_request
 def no_cache(resp):
  if request.path.startswith('/static/') or request.path=='/':
