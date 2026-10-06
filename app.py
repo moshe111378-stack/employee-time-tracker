@@ -86,8 +86,10 @@ def event(e):
     if rv>0:c.execute('update workers set hourly_rate=? where id=?',(rv,wid));c.commit();w=c.execute('select * from workers where id=?',(wid,)).fetchone()
    except ValueError:pass
   openr=c.execute('select * from att where worker_id=? and cout is null order by id desc limit 1',(wid,)).fetchone()
-  if not w:flash('עובד לא נמצא')
-  elif request.form['act']=='in' and openr:flash('כבר קיימת כניסה פתוחה')
+  if not w:
+   c.close();return jsonify(ok=False,error='עובד לא נמצא'),404 if request.headers.get('X-Requested-With')=='fetch' else redirect('/')
+  elif request.form['act']=='in' and openr:
+   c.close();return jsonify(ok=False,error='כבר קיימת כניסה פעילה. יש לבצע יציאה לפני כניסה נוספת.'),409 if request.headers.get('X-Requested-With')=='fetch' else redirect('/')
   elif request.form['act']=='in':c.execute('insert into att(event_id,worker_id,cin,pinphoto,inlat,inlon,inacc) values(?,?,?,?,?,?,?)',(e,wid,israel_now().isoformat(timespec='seconds'),photo(request.files.get('photo')),request.form.get('lat'),request.form.get('lon'),request.form.get('acc')));c.commit()
   elif not openr:flash('אין כניסה פתוחה לסגירה')
   else:c.execute('update att set cout=?,poutphoto=?,outlat=?,outlon=?,outacc=? where id=?',(israel_now().isoformat(timespec='seconds'),photo(request.files.get('photo')),request.form.get('lat'),request.form.get('lon'),request.form.get('acc'),openr['id']));c.commit()
