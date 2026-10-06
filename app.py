@@ -86,6 +86,7 @@ def event(e):
  if not ev:c.close();abort(404)
  if request.method=='POST':
   wid=request.form.get('wid');w=c.execute('select * from workers where id=?',(wid,)).fetchone();rate=request.form.get('hourly_rate')
+  if not session.get('worker_id') or str(session.get('worker_id'))!=str(wid):c.close();return jsonify(ok=False,error='המכשיר אינו מאומת לעובד הזה. יש לבצע אימות חד-פעמי.'),403 if request.headers.get('X-Requested-With')=='fetch' else redirect('/')
   if w and w['hourly_rate'] is None and rate:
    try:
     rv=float(rate)
