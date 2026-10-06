@@ -16,6 +16,14 @@ def init():
  if c.execute('select count(*) n from admins').fetchone()['n']==0:c.execute('insert into admins(name,user,pw) values(?,?,?)',('מנהל ראשי',os.getenv('ADMIN_USER','admin'),generate_password_hash(os.getenv('ADMIN_PASSWORD','change-this-password'))))
  c.commit();c.close()
 init()
+# Isolated master time-test seed (enabled only on the dedicated test service)
+if os.getenv('MASTER_TIME_TEST')=='1':
+ _t=con()
+ if _t.execute("select count(*) n from events where name='בדיקת שעון ישראל'").fetchone()['n']==0:
+  cur=_t.execute('insert into workers(name,phone,hourly_rate) values(?,?,?)',('עובד בדיקה','',45));wid=cur.lastrowid
+  cur=_t.execute('insert into events(name,date) values(?,?)',('בדיקת שעון ישראל',israel_now().date().isoformat()));eid=cur.lastrowid
+  _t.execute('insert into ew values(?,?)',(eid,wid));_t.commit()
+ _t.close()
 # One-time safe assignment: when exactly one active event exists, attach existing unassigned workers to it (up to 20)
 _fix=con();_es=_fix.execute('select id from events where active=1').fetchall()
 if len(_es)==1:
