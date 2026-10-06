@@ -1,18 +1,23 @@
-import os,sqlite3,uuid,time
+import os,sqlite3,uuid,time,random
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from functools import wraps
 from flask import *
 import csv,io
 from werkzeug.security import generate_password_hash,check_password_hash
 app=Flask(__name__);app.secret_key=os.getenv('SECRET_KEY','change-me');app.permanent_session_lifetime=timedelta(days=365);app.config.update(SESSION_COOKIE_HTTPONLY=True,SESSION_COOKIE_SECURE=True,SESSION_COOKIE_SAMESITE='Lax')
-_login_attempts={}
 DATA=os.getenv('DATA_DIR','/data');os.makedirs(DATA,exist_ok=True);UP=os.path.join(DATA,'uploads');os.makedirs(UP,exist_ok=True);DB=os.path.join(DATA,'hours.db')
+ISRAEL_TZ=ZoneInfo('Asia/Jerusalem')
+def israel_now(): return datetime.now(ISRAEL_TZ).replace(tzinfo=None)
 def con(): c=sqlite3.connect(DB);c.row_factory=sqlite3.Row;return c
 def init():
  c=con();c.executescript('CREATE TABLE IF NOT EXISTS admins(id INTEGER PRIMARY KEY,name TEXT,user TEXT UNIQUE,pw TEXT);CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY,name TEXT,date TEXT,active INTEGER DEFAULT 1);CREATE TABLE IF NOT EXISTS workers(id INTEGER PRIMARY KEY,name TEXT,phone TEXT);CREATE TABLE IF NOT EXISTS ew(event_id INTEGER,worker_id INTEGER,PRIMARY KEY(event_id,worker_id));CREATE TABLE IF NOT EXISTS att(id INTEGER PRIMARY KEY,event_id INTEGER,worker_id INTEGER,cin TEXT,cout TEXT,pinphoto TEXT,poutphoto TEXT,inlat TEXT,inlon TEXT,inacc TEXT,outlat TEXT,outlon TEXT,outacc TEXT);')
  if c.execute('select count(*) n from admins').fetchone()['n']==0:c.execute('insert into admins(name,user,pw) values(?,?,?)',('מנהל ראשי',os.getenv('ADMIN_USER','admin'),generate_password_hash(os.getenv('ADMIN_PASSWORD','change-this-password'))))
  c.commit();c.close()
 init()
+# One-time worker-device auth reset only; admin sessions/accounts are untouched
+if os.getenv('WORKER_DEVICE_AUTH_RESET_V1')=='1':
+ _r=con();_r.execute('update workers set device_code_hash=null');_r.commit();_r.close()
 # One-time safe assignment: when exactly one active event exists, attach existing unassigned workers to it (up to 20)
 _fix=con();_es=_fix.execute('select id from events where active=1').fetchall()
 if len(_es)==1:
@@ -28,6 +33,8 @@ for _col in ['inlat','inlon','inacc','outlat','outlon','outacc']:
  except sqlite3.OperationalError:pass
 try:_m.execute('alter table workers add column hourly_rate REAL')
 except sqlite3.OperationalError:pass
+try:_m.execute('alter table workers add column device_code_hash TEXT')
+except sqlite3.OperationalError:pass
 _m.commit();_m.close()
 def adm(f):
  @wraps(f)
@@ -41,9 +48,6 @@ def dur(a,b):
  d=datetime.fromisoformat(b)-datetime.fromisoformat(a);m=int(d.total_seconds()/60);return f'{m//60}:{m%60:02d}'
 app.jinja_env.globals['dur']=dur
 @app.after_request
-def security_headers(r):
- r.headers['X-Content-Type-Options']='nosniff';r.headers['X-Frame-Options']='DENY';r.headers['Referrer-Policy']='same-origin';r.headers['Permissions-Policy']='camera=(self), geolocation=(self)';return r
-@app.after_request
 def no_cache_assets(r):
  if request.path.startswith('/static/'):
   r.headers['Cache-Control']='no-store, no-cache, must-revalidate, max-age=0'
@@ -54,9 +58,10 @@ def home():
  c=con()
  workers=c.execute('select id,name,hourly_rate from workers order by name').fetchall()
  assignments=c.execute('select ew.worker_id,ew.event_id,e.name event_name from ew join events e on e.id=ew.event_id where e.active=1 order by e.name').fetchall()
+ open_shifts=c.execute('select worker_id,cin from att where cout is null order by id').fetchall();open_map={str(x["worker_id"]):x["cin"] for x in open_shifts}
  c.close()
  success=session.pop('attendance_success',None)
- return render_template('home.html',workers=workers,assignments=assignments,success=success)
+ return render_template('home.html',workers=workers,assignments=assignments,success=success,open_map=open_map)
 @app.after_request
 def no_cache(resp):
  if request.path.startswith('/static/') or request.path=='/':
@@ -69,40 +74,51 @@ def event(e):
  if not ev:c.close();abort(404)
  if request.method=='POST':
   wid=request.form.get('wid');w=c.execute('select * from workers where id=?',(wid,)).fetchone();rate=request.form.get('hourly_rate')
+  if not session.get('worker_id') or str(session.get('worker_id'))!=str(wid):c.close();return jsonify(ok=False,error='המכשיר אינו מאומת לעובד הזה. יש לבצע אימות חד-פעמי.'),403 if request.headers.get('X-Requested-With')=='fetch' else redirect('/')
   if w and w['hourly_rate'] is None and rate:
    try:
     rv=float(rate)
     if rv>0:c.execute('update workers set hourly_rate=? where id=?',(rv,wid));c.commit();w=c.execute('select * from workers where id=?',(wid,)).fetchone()
    except ValueError:pass
-  openr=c.execute('select * from att where event_id=? and worker_id=? and cout is null order by id desc limit 1',(e,wid)).fetchone()
+  openr=c.execute('select * from att where worker_id=? and cout is null order by id desc limit 1',(wid,)).fetchone()
   if not w:flash('עובד לא נמצא')
-  elif request.form['act']=='in' and openr:flash('כבר קיימת כניסה פתוחה')
-  elif request.form['act']=='in':c.execute('insert into att(event_id,worker_id,cin,pinphoto,inlat,inlon,inacc) values(?,?,?,?,?,?,?)',(e,wid,datetime.now().isoformat(timespec='seconds'),photo(request.files.get('photo')),request.form.get('lat'),request.form.get('lon'),request.form.get('acc')));c.commit()
-  elif not openr:flash('אין כניסה פתוחה לסגירה')
-  else:c.execute('update att set cout=?,poutphoto=?,outlat=?,outlon=?,outacc=? where id=?',(datetime.now().isoformat(timespec='seconds'),photo(request.files.get('photo')),request.form.get('lat'),request.form.get('lon'),request.form.get('acc'),openr['id']));c.commit()
+  elif request.form['act']=='in' and openr:
+   c.close();return jsonify(ok=False,error='כבר קיימת כניסה פעילה. יש לבצע יציאה לפני כניסה נוספת.'),409 if request.headers.get('X-Requested-With')=='fetch' else redirect('/')
+  elif request.form['act']=='in':c.execute('insert into att(event_id,worker_id,cin,pinphoto,inlat,inlon,inacc) values(?,?,?,?,?,?,?)',(e,wid,israel_now().isoformat(timespec='seconds'),photo(request.files.get('photo')),request.form.get('lat'),request.form.get('lon'),request.form.get('acc')));c.commit()
+  elif not openr:
+   c.close();return jsonify(ok=False,error='אין כניסה פעילה. אתה לא במשמרת.'),409 if request.headers.get('X-Requested-With')=='fetch' else redirect('/')
+  else:c.execute('update att set cout=?,poutphoto=?,outlat=?,outlon=?,outacc=? where id=?',(israel_now().isoformat(timespec='seconds'),photo(request.files.get('photo')),request.form.get('lat'),request.form.get('lon'),request.form.get('acc'),openr['id']));c.commit()
   result_type=request.form['act'];total='';
   if result_type=='out' and openr:
-   end=datetime.now();start=datetime.fromisoformat(openr['cin']);mins=max(0,int((end-start).total_seconds()/60));total=f'{mins//60}:{mins%60:02d}'
+   end=israel_now();start=datetime.fromisoformat(openr['cin']);mins=max(0,int((end-start).total_seconds()/60));total=f'{mins//60}:{mins%60:02d}'
   pay='';hourly=w['hourly_rate'] if w else None
   if result_type=='out' and openr and hourly:pay=f'{(mins/60)*float(hourly):.2f}'
-  c.close();return jsonify(ok=True,type=result_type,total=total,time=datetime.now().strftime('%H:%M'),hourly=hourly,pay=pay) if request.headers.get('X-Requested-With')=='fetch' else redirect('/')
+  c.close();return jsonify(ok=True,type=result_type,total=total,time=israel_now().strftime('%H:%M'),hourly=hourly,pay=pay) if request.headers.get('X-Requested-With')=='fetch' else redirect('/')
  c.close();return render_template('event.html',event=ev,workers=ws)
+@app.post('/worker-device/verify')
+def worker_device_verify():
+ wid=request.form.get('worker_id');code=request.form.get('code','');c=con();w=c.execute('select * from workers where id=?',(wid,)).fetchone()
+ if not w or not w['device_code_hash'] or not check_password_hash(w['device_code_hash'],code):c.close();return jsonify(ok=False,error='קוד אימות שגוי'),401
+ c.execute('update workers set device_code_hash=null where id=?',(wid,));c.commit();c.close();session['worker_id']=int(wid);session.permanent=True;return jsonify(ok=True)
+@app.post('/admin/worker/<int:w>/new-device-code')
+@adm
+def new_device_code(w):
+ code=f'{random.SystemRandom().randrange(100000,1000000)}';c=con();c.execute('update workers set device_code_hash=? where id=?',(generate_password_hash(code),w));c.commit();c.close();flash('קוד אימות חדש לעובד: '+code);return redirect('/admin/workers')
+
 @app.route('/admin/login',methods=['GET','POST'])
 def login():
  if request.method=='GET' and session.get('aid'):return redirect('/admin')
  if request.method=='POST':
-  ip=request.headers.get('X-Forwarded-For',request.remote_addr or '').split(',')[0].strip();now=time.time();attempts=[t for t in _login_attempts.get(ip,[]) if now-t<900]
-  if len(attempts)>=10:flash('יותר מדי ניסיונות כניסה. נסה שוב מאוחר יותר.');return render_template('login.html'),429
   c=con();a=c.execute('select * from admins where user=?',(request.form['user'],)).fetchone();c.close()
-  if a and check_password_hash(a['pw'],request.form['pw']):_login_attempts.pop(ip,None);session.clear();session['aid']=a['id'];session['aname']=a['name'];session.permanent=request.form.get('remember')=='1';return redirect('/admin')
-  _login_attempts[ip]=attempts+[now];flash('פרטי כניסה שגויים')
+  if a and check_password_hash(a['pw'],request.form['pw']):session.clear();session['aid']=a['id'];session['aname']=a['name'];session.permanent=request.form.get('remember')=='1';return redirect('/admin')
+  flash('פרטי כניסה שגויים')
  return render_template('login.html')
 @app.get('/admin/logout')
 def logout():session.clear();return redirect('/')
 @app.get('/admin')
 @adm
 def admin():
- c=con();E=c.execute('select * from events order by id desc').fetchall();W=c.execute('select * from workers order by name').fetchall();A=c.execute('select id,name,user from admins').fetchall();O=c.execute("select a.*,w.name,e.name event_name from att a join workers w on w.id=a.worker_id join events e on e.id=a.event_id where a.cout is null order by a.cin").fetchall();now=datetime.now();active=[dict(x,minutes=max(0,int((now-datetime.fromisoformat(x['cin'])).total_seconds()/60))) for x in O];alerts=[x for x in active if x['minutes']>=480];c.close();return render_template('admin.html',events=E,workers=W,admins=A,active=active,alerts=alerts,admin_name=session.get('aname','מנהל'))
+ c=con();E=c.execute('select * from events order by id desc').fetchall();W=c.execute('select * from workers order by name').fetchall();A=c.execute('select id,name,user from admins').fetchall();O=c.execute("select a.*,w.name,e.name event_name from att a join workers w on w.id=a.worker_id join events e on e.id=a.event_id where a.cout is null order by a.cin").fetchall();now=israel_now();active=[dict(x,minutes=max(0,int((now-datetime.fromisoformat(x['cin'])).total_seconds()/60))) for x in O];alerts=[x for x in active if x['minutes']>=480];c.close();return render_template('admin.html',events=E,workers=W,admins=A,active=active,alerts=alerts,admin_name=session.get('aname','מנהל'))
 @app.get('/admin/events')
 @adm
 def admin_events():
@@ -130,7 +146,8 @@ def ae():
 def aw():
  c=con();n=c.execute('select count(*) n from workers').fetchone()['n']
  if n>=500:flash('מקסימום 500 עובדים')
- else:c.execute('insert into workers(name,phone) values(?,?)',(request.form['name'],request.form.get('phone')));c.commit()
+ else:
+  code=f'{random.SystemRandom().randrange(100000,1000000)}';c.execute('insert into workers(name,phone,device_code_hash) values(?,?,?)',(request.form['name'],request.form.get('phone'),generate_password_hash(code)));c.commit();flash('העובד נוסף. קוד האימות החד-פעמי שלו: '+code)
  c.close();return redirect('/admin')
 @app.post('/admin/worker/<int:w>/edit')
 @adm
