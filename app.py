@@ -41,6 +41,8 @@ try:_m.execute('alter table workers add column hourly_rate REAL')
 except sqlite3.OperationalError:pass
 try:_m.execute('alter table workers add column verified_phone INTEGER DEFAULT 0')
 except sqlite3.OperationalError:pass
+try:_m.execute('alter table workers add column device_code_hash TEXT')
+except sqlite3.OperationalError:pass
 _m.execute('CREATE TABLE IF NOT EXISTS worker_otp(worker_id INTEGER PRIMARY KEY,code_hash TEXT,expires_at TEXT,attempts INTEGER DEFAULT 0)')
 _m.commit();_m.close()
 def adm(f):
@@ -136,6 +138,17 @@ def worker_auth_verify():
   c.close();return jsonify(ok=False,error='קוד שגוי או שפג תוקפו'),401
  c.execute('update workers set verified_phone=1 where id=?',(wid,));c.execute('delete from worker_otp where worker_id=?',(wid,));c.commit();c.close();session['worker_id']=int(wid);session.permanent=True;return jsonify(ok=True)
 
+
+@app.post('/worker-device/verify')
+def worker_device_verify():
+ wid=request.form.get('worker_id');code=request.form.get('code','');c=con();w=c.execute('select * from workers where id=?',(wid,)).fetchone()
+ if not w or not w['device_code_hash'] or not check_password_hash(w['device_code_hash'],code):c.close();return jsonify(ok=False,error='קוד אימות שגוי'),401
+ c.execute('update workers set device_code_hash=null where id=?',(wid,));c.commit();c.close();session['worker_id']=int(wid);session.permanent=True;return jsonify(ok=True)
+@app.post('/admin/worker/<int:w>/new-device-code')
+@adm
+def new_device_code(w):
+ code=f'{random.SystemRandom().randrange(100000,1000000)}';c=con();c.execute('update workers set device_code_hash=? where id=?',(generate_password_hash(code),w));c.commit();c.close();flash('קוד אימות חדש לעובד: '+code);return redirect('/admin/workers')
+
 @app.route('/admin/login',methods=['GET','POST'])
 def login():
  if request.method=='GET' and session.get('aid'):return redirect('/admin')
@@ -179,7 +192,8 @@ def ae():
 def aw():
  c=con();n=c.execute('select count(*) n from workers').fetchone()['n']
  if n>=500:flash('מקסימום 500 עובדים')
- else:c.execute('insert into workers(name,phone) values(?,?)',(request.form['name'],request.form.get('phone')));c.commit()
+ else:
+  code=f'{random.SystemRandom().randrange(100000,1000000)}';c.execute('insert into workers(name,phone,device_code_hash) values(?,?,?)',(request.form['name'],request.form.get('phone'),generate_password_hash(code)));c.commit();flash('העובד נוסף. קוד האימות החד-פעמי שלו: '+code)
  c.close();return redirect('/admin')
 @app.post('/admin/worker/<int:w>/edit')
 @adm
