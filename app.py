@@ -1,4 +1,4 @@
-import os,sqlite3,uuid,time
+import os,sqlite3,uuid,time,random,hashlib,hmac,urllib.request,urllib.parse
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from functools import wraps
@@ -39,6 +39,9 @@ for _col in ['inlat','inlon','inacc','outlat','outlon','outacc']:
  except sqlite3.OperationalError:pass
 try:_m.execute('alter table workers add column hourly_rate REAL')
 except sqlite3.OperationalError:pass
+try:_m.execute('alter table workers add column verified_phone INTEGER DEFAULT 0')
+except sqlite3.OperationalError:pass
+_m.execute('CREATE TABLE IF NOT EXISTS worker_otp(worker_id INTEGER PRIMARY KEY,code_hash TEXT,expires_at TEXT,attempts INTEGER DEFAULT 0)')
 _m.commit();_m.close()
 def adm(f):
  @wraps(f)
@@ -102,6 +105,37 @@ def event(e):
   if result_type=='out' and openr and hourly:pay=f'{(mins/60)*float(hourly):.2f}'
   c.close();return jsonify(ok=True,type=result_type,total=total,time=israel_now().strftime('%H:%M'),hourly=hourly,pay=pay) if request.headers.get('X-Requested-With')=='fetch' else redirect('/')
  c.close();return render_template('event.html',event=ev,workers=ws)
+
+def norm_phone(p):
+ p=''.join(ch for ch in (p or '') if ch.isdigit() or ch=='+')
+ if p.startswith('05'):p='+972'+p[1:]
+ elif p.startswith('972'):p='+'+p
+ return p
+def otp_hash(code):return hmac.new(app.secret_key.encode(),code.encode(),hashlib.sha256).hexdigest()
+def send_sms(phone,msg):
+ url=os.getenv('SMS_API_URL');token=os.getenv('SMS_API_TOKEN')
+ if not url or not token:return False
+ data=urllib.parse.urlencode({'to':phone,'message':msg}).encode()
+ req=urllib.request.Request(url,data=data,headers={'Authorization':'Bearer '+token,'Content-Type':'application/x-www-form-urlencoded'})
+ try:
+  with urllib.request.urlopen(req,timeout=10) as r:return 200<=r.status<300
+ except Exception:return False
+@app.post('/worker-auth/request')
+def worker_auth_request():
+ phone=norm_phone(request.form.get('phone'));c=con();w=c.execute('select * from workers where replace(replace(phone,"-","")," ","") in (?,?)',(phone,phone.replace('+972','0'))).fetchone()
+ if not w:c.close();return jsonify(ok=False,error='מספר הטלפון לא נמצא במערכת'),404
+ code=f'{random.SystemRandom().randrange(100000,1000000)}';exp=(israel_now()+timedelta(minutes=5)).isoformat(timespec='seconds')
+ c.execute('insert or replace into worker_otp(worker_id,code_hash,expires_at,attempts) values(?,?,?,0)',(w['id'],otp_hash(code),exp));c.commit();c.close()
+ if not send_sms(phone,'קוד האימות שלך למשמרון: '+code):return jsonify(ok=False,error='שירות SMS עדיין לא מחובר'),503
+ return jsonify(ok=True)
+@app.post('/worker-auth/verify')
+def worker_auth_verify():
+ wid=request.form.get('worker_id');code=request.form.get('code','');c=con();r=c.execute('select * from worker_otp where worker_id=?',(wid,)).fetchone()
+ if not r or r['attempts']>=5 or israel_now()>datetime.fromisoformat(r['expires_at']) or not hmac.compare_digest(r['code_hash'],otp_hash(code)):
+  if r:c.execute('update worker_otp set attempts=attempts+1 where worker_id=?',(wid,));c.commit()
+  c.close();return jsonify(ok=False,error='קוד שגוי או שפג תוקפו'),401
+ c.execute('update workers set verified_phone=1 where id=?',(wid,));c.execute('delete from worker_otp where worker_id=?',(wid,));c.commit();c.close();session['worker_id']=int(wid);session.permanent=True;return jsonify(ok=True)
+
 @app.route('/admin/login',methods=['GET','POST'])
 def login():
  if request.method=='GET' and session.get('aid'):return redirect('/admin')
