@@ -91,7 +91,8 @@ def event(e):
   elif request.form['act']=='in' and openr:
    c.close();return jsonify(ok=False,error='כבר קיימת כניסה פעילה. יש לבצע יציאה לפני כניסה נוספת.'),409 if request.headers.get('X-Requested-With')=='fetch' else redirect('/')
   elif request.form['act']=='in':c.execute('insert into att(event_id,worker_id,cin,pinphoto,inlat,inlon,inacc) values(?,?,?,?,?,?,?)',(e,wid,israel_now().isoformat(timespec='seconds'),photo(request.files.get('photo')),request.form.get('lat'),request.form.get('lon'),request.form.get('acc')));c.commit()
-  elif not openr:flash('אין כניסה פתוחה לסגירה')
+  elif not openr:
+   c.close();return jsonify(ok=False,error='אין כניסה פעילה. אתה לא במשמרת.'),409 if request.headers.get('X-Requested-With')=='fetch' else redirect('/')
   else:c.execute('update att set cout=?,poutphoto=?,outlat=?,outlon=?,outacc=? where id=?',(israel_now().isoformat(timespec='seconds'),photo(request.files.get('photo')),request.form.get('lat'),request.form.get('lon'),request.form.get('acc'),openr['id']));c.commit()
   result_type=request.form['act'];total='';
   if result_type=='out' and openr:
