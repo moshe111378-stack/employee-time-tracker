@@ -85,7 +85,7 @@ def event(e):
     rv=float(rate)
     if rv>0:c.execute('update workers set hourly_rate=? where id=?',(rv,wid));c.commit();w=c.execute('select * from workers where id=?',(wid,)).fetchone()
    except ValueError:pass
-  openr=c.execute('select * from att where event_id=? and worker_id=? and cout is null order by id desc limit 1',(e,wid)).fetchone()
+  openr=c.execute('select * from att where worker_id=? and cout is null order by id desc limit 1',(wid,)).fetchone()
   if not w:flash('עובד לא נמצא')
   elif request.form['act']=='in' and openr:flash('כבר קיימת כניסה פתוחה')
   elif request.form['act']=='in':c.execute('insert into att(event_id,worker_id,cin,pinphoto,inlat,inlon,inacc) values(?,?,?,?,?,?,?)',(e,wid,israel_now().isoformat(timespec='seconds'),photo(request.files.get('photo')),request.form.get('lat'),request.form.get('lon'),request.form.get('acc')));c.commit()
