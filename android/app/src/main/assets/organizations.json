@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "organizations": [
+    {"code":"001","name":"נחי","url":"https://mishmaron-nahi.up.railway.app/"},
+    {"code":"002","name":"אסף","url":"https://mishmaron-client-002-asaf-production.up.railway.app/"},
+    {"code":"003","name":"נטו ג׳וב","url":"https://mishmaron-client-003-neto-job-production.up.railway.app/"},
+    {"code":"004","name":"זיוולד המקורי","url":"https://employee-time-tracker-production-0910.up.railway.app/"},
+    {"code":"005","name":"משמרון — מאסטר","url":"https://mishmaron-master-production.up.railway.app/"},
+    {"code":"000","name":"סביבת בדיקה","url":"https://mishmaron-master-time-test-production.up.railway.app/"}
+  ]
+}

@@ -1,0 +1,35 @@
+name: Mishmaron Android checks
+on:
+  push:
+    branches: [mishmaron-play-all-clients]
+    paths: ['android/**', 'config/organizations.json', '.github/workflows/mishmaron-android.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Check bundled organization registry
+        run: cmp config/organizations.json android/app/src/main/assets/organizations.json
+      - name: Install Android SDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Test and build
+        working-directory: android
+        run: ./gradlew --no-daemon testDebugUnitTest lintRelease assembleDebug assembleRelease bundleRelease
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mishmaron-unsigned-build-and-reports
+          path: |
+            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/apk/release/*.apk
+            android/app/build/outputs/bundle/release/*.aab
+            android/app/build/reports/
+          retention-days: 14
