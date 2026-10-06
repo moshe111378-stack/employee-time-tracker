@@ -14,8 +14,10 @@ jobs:
         with: {distribution: temurin, java-version: '17'}
       - uses: gradle/actions/setup-gradle@v4
         with: {gradle-version: '8.9'}
-      - run: gradle assembleDebug
+      - run: gradle assembleDebug bundleDebug
       - name: Publish APK to test download server
         run: curl --fail --retry 5 -X PUT --data-binary @app/build/outputs/apk/debug/app-debug.apk https://zibald-test-apk-download-production.up.railway.app/upload
       - uses: actions/upload-artifact@v4
         with: {name: ZIBALD-SECURITY-TEST-APK, path: android-test/app/build/outputs/apk/debug/app-debug.apk}
+      - uses: actions/upload-artifact@v4
+        with: {name: ZIBALD-SECURITY-TEST-AAB, path: android-test/app/build/outputs/bundle/debug/app-debug.aab}
