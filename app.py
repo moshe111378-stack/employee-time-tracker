@@ -4,7 +4,7 @@ from functools import wraps
 from flask import *
 import csv,io
 from werkzeug.security import generate_password_hash,check_password_hash
-app=Flask(__name__);app.secret_key=os.getenv('SECRET_KEY','change-me')
+app=Flask(__name__);app.secret_key=os.getenv('SECRET_KEY','change-me');app.permanent_session_lifetime=timedelta(days=365);app.config.update(SESSION_COOKIE_HTTPONLY=True,SESSION_COOKIE_SECURE=True,SESSION_COOKIE_SAMESITE='Lax')
 DATA=os.getenv('DATA_DIR','/data');os.makedirs(DATA,exist_ok=True);UP=os.path.join(DATA,'uploads');os.makedirs(UP,exist_ok=True);DB=os.path.join(DATA,'hours.db')
 def con(): c=sqlite3.connect(DB);c.row_factory=sqlite3.Row;return c
 def init():
@@ -85,9 +85,10 @@ def event(e):
  c.close();return render_template('event.html',event=ev,workers=ws)
 @app.route('/admin/login',methods=['GET','POST'])
 def login():
+ if request.method=='GET' and session.get('aid'):return redirect('/admin')
  if request.method=='POST':
   c=con();a=c.execute('select * from admins where user=?',(request.form['user'],)).fetchone();c.close()
-  if a and check_password_hash(a['pw'],request.form['pw']):session['aid']=a['id'];session['aname']=a['name'];return redirect('/admin')
+  if a and check_password_hash(a['pw'],request.form['pw']):session.clear();session['aid']=a['id'];session['aname']=a['name'];session.permanent=request.form.get('remember')=='1';return redirect('/admin')
   flash('פרטי כניסה שגויים')
  return render_template('login.html')
 @app.get('/admin/logout')
