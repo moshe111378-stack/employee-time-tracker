@@ -169,6 +169,21 @@ def delete_report(e,r):
 @app.get('/uploads/<n>')
 @adm
 def uploads(n):return send_from_directory(UP,n)
+@app.get('/admin/reports')
+@adm
+def admin_reports():
+ c=con();rows=c.execute("""select a.*,w.name worker_name,w.hourly_rate,e.name event_name,e.date event_date from att a join workers w on w.id=a.worker_id join events e on e.id=a.event_id where a.cout is not null order by e.date desc,a.id desc""").fetchall();events={}
+ for x in rows:
+  try:mins=max(0,int((datetime.fromisoformat(x['cout'])-datetime.fromisoformat(x['cin'])).total_seconds()/60))
+  except:mins=0
+  pay=(mins/60)*float(x['hourly_rate'] or 0);eid=x['event_id']
+  if eid not in events:events[eid]={'id':eid,'name':x['event_name'],'date':x['event_date'],'minutes':0,'pay':0.0,'workers':set(),'rows':[]}
+  ev=events[eid];ev['minutes']+=mins;ev['pay']+=pay;ev['workers'].add(x['worker_id']);ev['rows'].append({'worker':x['worker_name'],'cin':x['cin'],'cout':x['cout'],'minutes':mins,'rate':float(x['hourly_rate'] or 0),'pay':pay})
+ out=[]
+ for ev in events.values():ev['worker_count']=len(ev['workers']);ev['hours']=f"{ev['minutes']//60}:{ev['minutes']%60:02d}";ev['pay_text']=f"{ev['pay']:.2f}";out.append(ev)
+ c.close();return render_template('admin_reports.html',reports=out)
+
+
 @app.get('/health')
 def health():return {'ok':True}
 
