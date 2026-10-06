@@ -19,6 +19,14 @@ init()
 # Isolated master time-test seed (enabled only on the dedicated test service)
 if os.getenv('MASTER_TIME_TEST')=='1':
  _t=con()
+ # Dedicated non-expiring Google Play review admin account (master test service only)
+ _review_user=os.getenv('GOOGLE_REVIEW_USER')
+ _review_pw=os.getenv('GOOGLE_REVIEW_PASSWORD')
+ if _review_user and _review_pw:
+  _existing=_t.execute('select id from admins where user=?',(_review_user,)).fetchone()
+  if _existing:_t.execute('update admins set name=?,pw=? where id=?',('Google Play Review',generate_password_hash(_review_pw),_existing['id']))
+  else:_t.execute('insert into admins(name,user,pw) values(?,?,?)',('Google Play Review',_review_user,generate_password_hash(_review_pw)))
+  _t.commit()
  if _t.execute("select count(*) n from events where name='בדיקת שעון ישראל'").fetchone()['n']==0:
   cur=_t.execute('insert into workers(name,phone,hourly_rate) values(?,?,?)',('עובד בדיקה','',45));wid=cur.lastrowid
   cur=_t.execute('insert into events(name,date) values(?,?)',('בדיקת שעון ישראל',israel_now().date().isoformat()));eid=cur.lastrowid
