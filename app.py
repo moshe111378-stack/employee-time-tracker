@@ -13,24 +13,25 @@ def init():
  c.commit();c.close()
 init()
 
-# Test-only demo data for reports preview
-if os.getenv('REPORTS_TEST_SEED')=='1':
+# Test-only full demo dataset for reports preview
+if os.getenv('REPORTS_TEST_SEED')=='FULL_V2':
  _s=con()
- if _s.execute('select count(*) n from events').fetchone()['n']==0:
-  workers=[('משה',45),('נחי',42),('אלחנן',40),('אברהם',50),('מושיקו',44)]
-  for n,r in workers:_s.execute('insert into workers(name,phone,hourly_rate) values(?,?,?)',(n,'',r))
-  ids=[x['id'] for x in _s.execute('select id from workers order by id').fetchall()]
-  demos=[('הכנסת ספר תורה','2026-10-05',ids[:4],[(18,0,23,30),(18,15,23,0),(19,0,23,45),(19,30,23,30)]),('אירוע חברה','2026-10-02',ids[1:],[(17,0,22,0),(17,30,22,30),(18,0,23,0),(18,0,21,30)]),('חתונה - אולם ירושלים','2026-09-28',ids[:3],[(19,0,1,0),(19,30,0,30),(20,0,1,30)])]
-  for en,dt,wids,times in demos:
-   cur=_s.execute('insert into events(name,date) values(?,?)',(en,dt));eid=cur.lastrowid
-   for wid in wids:_s.execute('insert into ew values(?,?)',(eid,wid))
-   for wid,tm in zip(wids,times):
-    h1,m1,h2,m2=tm;start=datetime.fromisoformat(dt+'T%02d:%02d:00'%(h1,m1));end=datetime.fromisoformat(dt+'T%02d:%02d:00'%(h2,m2))
-    if end<=start:end+=timedelta(days=1)
-    _s.execute('insert into att(event_id,worker_id,cin,cout) values(?,?,?,?)',(eid,wid,start.isoformat(timespec='seconds'),end.isoformat(timespec='seconds')))
+ if _s.execute("select count(*) n from events where name like 'DEMO:%'").fetchone()['n']==0:
+  demo_workers=[('משה כהן',45),('נחי לוי',42),('אלחנן דוד',40),('אברהם ישראל',50),('מושיקו פרץ',44),('דניאל מזרחי',41),('יוסי אדרי',46),('מאיר ביטון',43),('חיים מלכה',48),('נתנאל שלום',39),('רועי כהן',45),('שלומי לוי',47)]
+  ids=[]
+  for n,r in demo_workers:
+   cur=_s.execute('insert into workers(name,phone,hourly_rate) values(?,?,?)',(n,'0500000000',r));ids.append(cur.lastrowid)
+  today=datetime.now().date();names=['הכנסת ספר תורה','חתונה - ירושלים','אירוע חברה','אבטחת כנס','בר מצווה','אירוע קהילה','הופעה','אירוע פרטי']
+  for i in range(32):
+   dt=today-timedelta(days=i*6);cur=_s.execute('insert into events(name,date) values(?,?)',('DEMO: '+names[i%len(names)],dt.isoformat()));eid=cur.lastrowid;count=4+(i%6)
+   for j in range(count):
+    wid=ids[(i+j)%len(ids)];_s.execute('insert or ignore into ew values(?,?)',(eid,wid));startdt=datetime.combine(dt,datetime.min.time())+timedelta(hours=17+(j%3),minutes=(j%2)*15);enddt=startdt+timedelta(hours=4+(j%5),minutes=(j%3)*10);_s.execute('insert into att(event_id,worker_id,cin,cout) values(?,?,?,?)',(eid,wid,startdt.isoformat(timespec='seconds'),enddt.isoformat(timespec='seconds')))
+  # Current active event: normal open shifts plus one 9-hour alert
+  dt=today;cur=_s.execute('insert into events(name,date) values(?,?)',('DEMO: אירוע פעיל עכשיו',dt.isoformat()));eid=cur.lastrowid;now=datetime.now()
+  for j,wid in enumerate(ids[:5]):
+   _s.execute('insert or ignore into ew values(?,?)',(eid,wid));cin=now-timedelta(hours=(9 if j==0 else 1+j),minutes=10*j);_s.execute('insert into att(event_id,worker_id,cin,cout) values(?,?,?,null)',(eid,wid,cin.isoformat(timespec='seconds')))
   _s.commit()
  _s.close()
-
 # One-time safe assignment: when exactly one active event exists, attach existing unassigned workers to it (up to 20)
 _fix=con();_es=_fix.execute('select id from events where active=1').fetchall()
 if len(_es)==1:
