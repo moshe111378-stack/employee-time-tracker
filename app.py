@@ -12,6 +12,25 @@ def init():
  if c.execute('select count(*) n from admins').fetchone()['n']==0:c.execute('insert into admins(name,user,pw) values(?,?,?)',('מנהל ראשי',os.getenv('ADMIN_USER','admin'),generate_password_hash(os.getenv('ADMIN_PASSWORD','change-this-password'))))
  c.commit();c.close()
 init()
+
+# Test-only demo data for reports preview
+if os.getenv('REPORTS_TEST_SEED')=='1':
+ _s=con()
+ if _s.execute('select count(*) n from events').fetchone()['n']==0:
+  workers=[('משה',45),('נחי',42),('אלחנן',40),('אברהם',50),('מושיקו',44)]
+  for n,r in workers:_s.execute('insert into workers(name,phone,hourly_rate) values(?,?,?)',(n,'',r))
+  ids=[x['id'] for x in _s.execute('select id from workers order by id').fetchall()]
+  demos=[('הכנסת ספר תורה','2026-10-05',ids[:4],[(18,0,23,30),(18,15,23,0),(19,0,23,45),(19,30,23,30)]),('אירוע חברה','2026-10-02',ids[1:],[(17,0,22,0),(17,30,22,30),(18,0,23,0),(18,0,21,30)]),('חתונה - אולם ירושלים','2026-09-28',ids[:3],[(19,0,1,0),(19,30,0,30),(20,0,1,30)])]
+  for en,dt,wids,times in demos:
+   cur=_s.execute('insert into events(name,date) values(?,?)',(en,dt));eid=cur.lastrowid
+   for wid in wids:_s.execute('insert into ew values(?,?)',(eid,wid))
+   for wid,tm in zip(wids,times):
+    h1,m1,h2,m2=tm;start=datetime.fromisoformat(dt+'T%02d:%02d:00'%(h1,m1));end=datetime.fromisoformat(dt+'T%02d:%02d:00'%(h2,m2))
+    if end<=start:end+=timedelta(days=1)
+    _s.execute('insert into att(event_id,worker_id,cin,cout) values(?,?,?,?)',(eid,wid,start.isoformat(timespec='seconds'),end.isoformat(timespec='seconds')))
+  _s.commit()
+ _s.close()
+
 # One-time safe assignment: when exactly one active event exists, attach existing unassigned workers to it (up to 20)
 _fix=con();_es=_fix.execute('select id from events where active=1').fetchall()
 if len(_es)==1:
