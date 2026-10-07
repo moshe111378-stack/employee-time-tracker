@@ -1,0 +1,45 @@
+name: Mishmaron
+options:
+  bundleIdPrefix: il.co.mishmaron
+  deploymentTarget:
+    iOS: '16.0'
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    MARKETING_VERSION: '1.2.0'
+    CURRENT_PROJECT_VERSION: '8'
+    DEVELOPMENT_TEAM: ''
+    CODE_SIGN_STYLE: Automatic
+    TARGETED_DEVICE_FAMILY: '1,2'
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+targets:
+  Mishmaron:
+    type: application
+    platform: iOS
+    sources: [Mishmaron]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: il.co.mishmaron.app
+        INFOPLIST_FILE: Mishmaron/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    scheme:
+      testTargets: [MishmaronTests, MishmaronUITests]
+      gatherCoverageData: true
+  MishmaronTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [MishmaronTests]
+    dependencies:
+      - target: Mishmaron
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+  MishmaronUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [MishmaronUITests]
+    dependencies:
+      - target: Mishmaron
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES

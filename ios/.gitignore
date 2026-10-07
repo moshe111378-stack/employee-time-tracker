@@ -1,0 +1,8 @@
+Mishmaron.xcodeproj/
+build/
+*.xcarchive
+*.xcresult
+*.ipa
+*.p12
+*.mobileprovision
+ExportOptions.plist

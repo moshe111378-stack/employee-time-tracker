@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>he</string>
+	<key>CFBundleDisplayName</key>
+	<string>משמרון</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>he</string>
+	</array>
+	<key>CFBundleName</key>
+	<string>Mishmaron</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>il.co.mishmaron.app.organization</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>mishmaron</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<false/>
+	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>צילום תמונה לצירוף לדיווח הנוכחות שלך. התמונה תישלח לארגון ותישמר עם הדיווח.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>המיקום נשלח לארגון רק בזמן דיווח כניסה או יציאה לצורך אימות נוכחות. אין איסוף מיקום ברקע.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>בחירת תמונה לצירוף לדיווח הנוכחות שלך. רק התמונה שתבחר תישלח לארגון.</string>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+</dict>
+</plist>

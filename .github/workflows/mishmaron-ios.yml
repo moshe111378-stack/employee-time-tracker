@@ -1,0 +1,34 @@
+name: Mishmaron iOS verification
+on:
+  push:
+    branches: [mishmaron-ios-preparation]
+    paths: ['ios/**', '.github/workflows/mishmaron-ios.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          cd ios
+          xcodegen generate
+      - name: Build device archive without signing
+        run: |
+          xcodebuild -project ios/Mishmaron.xcodeproj -scheme Mishmaron -configuration Release -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Mishmaron.xcarchive" CODE_SIGNING_ALLOWED=NO archive
+      - name: Run iPhone simulator checks
+        run: |
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for v in d["devices"].values() for x in v if x["name"].startswith("iPhone")))')
+          xcodebuild -project ios/Mishmaron.xcodeproj -scheme Mishmaron -destination "platform=iOS Simulator,id=$DEVICE_ID" -resultBundlePath "$RUNNER_TEMP/Mishmaron.xcresult" CODE_SIGNING_ALLOWED=NO test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mishmaron-ios-verification
+          path: |
+            ${{ runner.temp }}/Mishmaron.xcarchive
+            ${{ runner.temp }}/Mishmaron.xcresult
+          retention-days: 14
