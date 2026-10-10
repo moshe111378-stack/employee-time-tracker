@@ -1,0 +1,6 @@
+Build: 9
+Version: 1.2.0
+Bundle: il.co.mishmaron.app
+App Store Connect app: 6820580792
+Purpose: signed TestFlight upload after verification; no App Review or public release.
+Requested: 2026-10-10
