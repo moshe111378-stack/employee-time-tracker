@@ -4,6 +4,15 @@ on:
     branches: [mishmaron-ios-preparation]
     paths: ['ios/**', '.github/workflows/mishmaron-ios.yml']
   workflow_dispatch:
+    inputs:
+      upload_testflight:
+        description: 'Sign and upload to App Store Connect after verification (no App Review submission)'
+        type: boolean
+        default: false
+      build_number:
+        description: 'Unused build number for version 1.2.0 (check App Store Connect first)'
+        type: string
+        default: '9'
 permissions:
   contents: read
 jobs:
@@ -45,4 +54,37 @@ jobs:
             ${{ runner.temp }}/Mishmaron-unsigned.xcarchive.zip
             ${{ runner.temp }}/Mishmaron.xcresult
             ${{ runner.temp }}/screenshots
+          retention-days: 14
+  testflight:
+    needs: verify
+    if: github.event_name == 'workflow_dispatch' && inputs.upload_testflight && github.ref == 'refs/heads/mishmaron-ios-preparation'
+    runs-on: macos-15
+    timeout-minutes: 40
+    concurrency:
+      group: mishmaron-testflight
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - name: Install project generator
+        run: brew install xcodegen
+      - name: Sign, verify and upload build
+        env:
+          MISHMARON_TEAM_ID: ${{ secrets.MISHMARON_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_BASE64: ${{ secrets.ASC_PRIVATE_KEY_BASE64 }}
+          MISHMARON_BUILD_NUMBER: ${{ inputs.build_number }}
+        run: bash ios/scripts/upload-testflight.sh
+      - name: Preserve signed IPA
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mishmaron-ios-signed-${{ inputs.build_number }}
+          path: ios/build/testflight/export/*.ipa
+          if-no-files-found: error
           retention-days: 14

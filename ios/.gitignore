@@ -4,5 +4,7 @@ build/
 *.xcresult
 *.ipa
 *.p12
+*.p8
+*.key
 *.mobileprovision
 ExportOptions.plist

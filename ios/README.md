@@ -7,6 +7,8 @@
 ## בנייה
 ב-Mac עם Xcode: `brew install xcodegen`, ואז בתוך ios: `xcodegen generate`. פתחו את Mishmaron.xcodeproj. תהליך GitHub Actions בענף ההכנה בונה archive לא חתום ומריץ בדיקות מדיניות ניווט ובדיקת פתיחה בסימולטור. אין פרסום אוטומטי.
 
+מסלול חתימה והעלאה ידנית ל־TestFlight מתועד ב-[TESTFLIGHT_UPLOAD.md](TESTFLIGHT_UPLOAD.md). הוא דורש סודות Apple תקפים והצלחת הבדיקות; שמירת המסלול אינה אישור שהועלה Build.
+
 ## חסמי שחרור
 - נדרש להשלים בנייה ובדיקות Xcode בהצלחה; קוד מקור אינו קובץ מוכן להעלאה.
 - נדרשת הפעלת Apple Developer, בחירת Team, אישורי חתימה ופרופיל App Store, ויצוא IPA חתום.
