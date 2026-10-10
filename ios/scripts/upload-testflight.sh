@@ -4,6 +4,12 @@
 set -euo pipefail
 set +x
 
+if [ "${GITHUB_EVENT_NAME:-}" = push ]; then
+  request_pattern='^TestFlight: upload build ([1-9][0-9]{0,3})$'
+  [[ "${MISHMARON_UPLOAD_REQUEST:-}" =~ $request_pattern ]] || { echo 'Invalid explicit TestFlight upload request.' >&2; exit 1; }
+  export MISHMARON_BUILD_NUMBER="${BASH_REMATCH[1]}"
+fi
+
 for name in MISHMARON_TEAM_ID ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_BASE64 MISHMARON_BUILD_NUMBER; do
   if [ -z "${!name:-}" ]; then
     printf 'Missing required secret/input: %s\n' "$name" >&2

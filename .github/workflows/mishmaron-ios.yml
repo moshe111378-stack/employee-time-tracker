@@ -57,7 +57,9 @@ jobs:
           retention-days: 14
   testflight:
     needs: verify
-    if: github.event_name == 'workflow_dispatch' && inputs.upload_testflight && github.ref == 'refs/heads/mishmaron-ios-preparation'
+    # An explicit upload-request commit changing ios/testflight-request.txt
+    # can start this branch-only workflow without merging iOS code into main.
+    if: github.ref == 'refs/heads/mishmaron-ios-preparation' && ((github.event_name == 'workflow_dispatch' && inputs.upload_testflight) || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'TestFlight: upload build ')))
     runs-on: macos-15
     timeout-minutes: 40
     concurrency:
@@ -79,12 +81,13 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_PRIVATE_KEY_BASE64: ${{ secrets.ASC_PRIVATE_KEY_BASE64 }}
           MISHMARON_BUILD_NUMBER: ${{ inputs.build_number }}
+          MISHMARON_UPLOAD_REQUEST: ${{ github.event.head_commit.message }}
         run: bash ios/scripts/upload-testflight.sh
       - name: Preserve signed IPA
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: mishmaron-ios-signed-${{ inputs.build_number }}
+          name: mishmaron-ios-signed-${{ github.run_id }}
           path: ios/build/testflight/export/*.ipa
           if-no-files-found: error
           retention-days: 14
