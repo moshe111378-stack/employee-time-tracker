@@ -101,6 +101,12 @@ ditto -x -k "${ipas[0]}" "$private_dir/ipa"
 apps=("$private_dir/ipa/Payload/"*.app)
 [[ "${#apps[@]}" -eq 1 ]] || { echo 'Expected one application inside the IPA.' >&2; exit 1; }
 codesign --verify --deep --strict "${apps[0]}"
+if [ -n "${GITHUB_OUTPUT:-}" ]; then
+  printf 'signed_ipa_verified=true\n' >> "$GITHUB_OUTPUT"
+fi
+if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+  printf 'Distribution IPA exported and signature verified for il.co.mishmaron.app 1.2.0 (%s).\n\n' "$MISHMARON_BUILD_NUMBER" >> "$GITHUB_STEP_SUMMARY"
+fi
 
 xcodebuild -exportArchive -archivePath "$build_dir/Mishmaron.xcarchive" \
   -exportOptionsPlist "$build_dir/upload.plist" -exportPath "$build_dir/upload" "${auth[@]}"

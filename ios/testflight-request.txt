@@ -1,6 +1,7 @@
-Build: 9
+Build: 10
 Version: 1.2.0
 Bundle: il.co.mishmaron.app
 App Store Connect app: 6820580792
 Purpose: signed TestFlight upload after verification; no App Review or public release.
+Change: iPad orientation metadata required by App Store Connect validation.
 Requested: 2026-10-10

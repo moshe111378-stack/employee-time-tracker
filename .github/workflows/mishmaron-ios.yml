@@ -78,6 +78,7 @@ jobs:
       - name: Install project generator
         run: brew install xcodegen
       - name: Sign, verify and upload build
+        id: sign_upload
         env:
           MISHMARON_TEAM_ID: ${{ secrets.MISHMARON_TEAM_ID }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
@@ -87,7 +88,7 @@ jobs:
           MISHMARON_UPLOAD_REQUEST: ${{ github.event.head_commit.message }}
         run: bash ios/scripts/upload-testflight.sh
       - name: Preserve signed IPA
-        if: success()
+        if: always() && steps.sign_upload.outputs.signed_ipa_verified == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: mishmaron-ios-signed-${{ github.run_id }}
