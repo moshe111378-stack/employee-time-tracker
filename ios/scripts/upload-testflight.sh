@@ -69,11 +69,13 @@ if [ -e "$build_dir" ]; then
 fi
 mkdir -p "$build_dir"
 xcodegen generate
+# Archive without a development profile; TestFlight distribution signing is
+# performed by exportArchive below and verified before any upload.
 xcodebuild -project Mishmaron.xcodeproj -scheme Mishmaron -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "$build_dir/Mishmaron.xcarchive" \
-  DEVELOPMENT_TEAM="$MISHMARON_TEAM_ID" CODE_SIGN_STYLE=Automatic \
+  DEVELOPMENT_TEAM="$MISHMARON_TEAM_ID" CODE_SIGN_STYLE=Automatic CODE_SIGNING_ALLOWED=NO \
   CURRENT_PROJECT_VERSION="$MISHMARON_BUILD_NUMBER" MARKETING_VERSION=1.2.0 \
-  "${auth[@]}" archive
+  archive
 
 export MISHMARON_BUILD_DIR="$build_dir"
 python3 - <<'PY'
