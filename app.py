@@ -32,6 +32,7 @@ _m.execute('''CREATE TABLE IF NOT EXISTS att_edits(
  edited_by_admin_id INTEGER NOT NULL, editor_name TEXT NOT NULL,
  edited_at TEXT NOT NULL, old_cin TEXT NOT NULL, old_cout TEXT,
  new_cin TEXT NOT NULL, new_cout TEXT)''')
+_m.execute('CREATE INDEX IF NOT EXISTS idx_att_edits_att_id ON att_edits(att_id)')
 _m.commit();_m.close()
 def adm(f):
  @wraps(f)
@@ -171,9 +172,12 @@ def edit_attendance(e,r):
  c=con();admin=c.execute('select id,name from admins where id=?',(session.get('aid'),)).fetchone()
  if not admin:c.close();abort(403)
  try:
-  start=datetime.fromisoformat(request.form.get('cin',''))
+  cin_value=request.form.get('cin','').strip()
+  if 'T' not in cin_value:raise ValueError('date and time required')
+  start=datetime.fromisoformat(cin_value)
   if start.tzinfo is not None:raise ValueError('timezone is not accepted')
   end_value=request.form.get('cout','').strip()
+  if end_value and 'T' not in end_value:raise ValueError('date and time required')
   end=datetime.fromisoformat(end_value) if end_value else None
   if end and end.tzinfo is not None:raise ValueError('timezone is not accepted')
  except ValueError:
