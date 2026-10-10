@@ -1,4 +1,4 @@
-import os,sqlite3,uuid
+import os,sqlite3,uuid,hmac,tempfile
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import *
@@ -183,6 +183,29 @@ def admin_reports():
  for ev in events.values():ev['worker_count']=len(ev['workers']);ev['hours']=f"{ev['minutes']//60}:{ev['minutes']%60:02d}";ev['pay_text']=f"{ev['pay']:.2f}";out.append(ev)
  c.close();return render_template('admin_reports.html',reports=out)
 
+
+@app.post('/internal/backup')
+def internal_backup():
+ expected=os.getenv('BACKUP_TOKEN','')
+ auth=request.headers.get('Authorization','')
+ if not expected or not hmac.compare_digest(auth,'Bearer '+expected):return jsonify(ok=False),401
+ if not os.path.isfile(DB):return jsonify(ok=False,error='database unavailable'),503
+ fd,path=tempfile.mkstemp(prefix='mishmaron-backup-',suffix='.db',dir='/tmp');os.close(fd)
+ src=dst=None
+ try:
+  src=sqlite3.connect('file:'+DB+'?mode=ro',uri=True,timeout=30)
+  dst=sqlite3.connect(path,timeout=30)
+  src.backup(dst)
+  dst.close();dst=None;src.close();src=None
+  response=send_file(path,mimetype='application/x-sqlite3')
+  response.call_on_close(lambda: os.path.exists(path) and os.remove(path))
+  return response
+ except Exception:
+  if dst:dst.close()
+  if src:src.close()
+  if os.path.exists(path):os.remove(path)
+  app.logger.exception('Backup snapshot failed')
+  return jsonify(ok=False,error='backup snapshot failed'),500
 
 @app.get('/health')
 def health():return {'ok':True}
