@@ -59,7 +59,10 @@ jobs:
     needs: verify
     # An explicit upload-request commit changing ios/testflight-request.txt
     # can start this branch-only workflow without merging iOS code into main.
-    if: github.ref == 'refs/heads/mishmaron-ios-preparation' && ((github.event_name == 'workflow_dispatch' && inputs.upload_testflight) || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'TestFlight: upload build ')))
+    if: >-
+      github.ref == 'refs/heads/mishmaron-ios-preparation' &&
+      ((github.event_name == 'workflow_dispatch' && inputs.upload_testflight) ||
+      (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'TestFlight: upload build ')))
     runs-on: macos-15
     timeout-minutes: 40
     concurrency:
