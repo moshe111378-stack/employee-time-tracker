@@ -3,6 +3,9 @@ on:
   push:
     branches: [mishmaron-play-all-clients]
     paths: ['android/**', 'config/organizations.json', '.github/workflows/mishmaron-android.yml']
+  pull_request:
+    branches: [mishmaron-play-all-clients]
+    paths: ['android/**', 'config/organizations.json', '.github/workflows/mishmaron-android.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -16,6 +19,10 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+        with:
+          # The removed legacy 'tools' package breaks setup before tests run.
+          packages: 'platform-tools'
+          log-accepted-android-sdk-licenses: 'false'
       - uses: gradle/actions/setup-gradle@v4
       - name: Check bundled organization registry
         run: cmp config/organizations.json android/app/src/main/assets/organizations.json
@@ -25,6 +32,7 @@ jobs:
         working-directory: android
         run: ./gradlew --no-daemon testDebugUnitTest lintRelease assembleDebug assembleRelease bundleRelease
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: mishmaron-unsigned-build-and-reports
           path: |
