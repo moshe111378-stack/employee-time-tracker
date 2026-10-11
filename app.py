@@ -2,6 +2,7 @@ import os,sqlite3,uuid,hmac,tempfile
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from flask import *
+from attendance_admin import (ensure_audit_schema, attendance_edit_token, valid_edit_token, save_attendance_edit, attendance_pay)
 import csv,io
 from werkzeug.security import generate_password_hash,check_password_hash
 app=Flask(__name__);app.secret_key=os.getenv('SECRET_KEY','change-me');app.permanent_session_lifetime=timedelta(days=365);app.config.update(SESSION_COOKIE_HTTPONLY=True,SESSION_COOKIE_SECURE=True,SESSION_COOKIE_SAMESITE='Lax')
@@ -9,9 +10,11 @@ DATA=os.getenv('DATA_DIR','/data');os.makedirs(DATA,exist_ok=True);UP=os.path.jo
 def con(): c=sqlite3.connect(DB);c.row_factory=sqlite3.Row;return c
 def init():
  c=con();c.executescript('CREATE TABLE IF NOT EXISTS admins(id INTEGER PRIMARY KEY,name TEXT,user TEXT UNIQUE,pw TEXT);CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY,name TEXT,date TEXT,active INTEGER DEFAULT 1);CREATE TABLE IF NOT EXISTS workers(id INTEGER PRIMARY KEY,name TEXT,phone TEXT);CREATE TABLE IF NOT EXISTS ew(event_id INTEGER,worker_id INTEGER,PRIMARY KEY(event_id,worker_id));CREATE TABLE IF NOT EXISTS att(id INTEGER PRIMARY KEY,event_id INTEGER,worker_id INTEGER,cin TEXT,cout TEXT,pinphoto TEXT,poutphoto TEXT,inlat TEXT,inlon TEXT,inacc TEXT,outlat TEXT,outlon TEXT,outacc TEXT);')
+ ensure_audit_schema(c)
  if c.execute('select count(*) n from admins').fetchone()['n']==0:c.execute('insert into admins(name,user,pw) values(?,?,?)',('מנהל ראשי',os.getenv('ADMIN_USER','admin'),generate_password_hash(os.getenv('ADMIN_PASSWORD','change-this-password'))))
  c.commit();c.close()
 init()
+app.jinja_env.globals['attendance_edit_token']=attendance_edit_token
 # One-time safe assignment: when exactly one active event exists, attach existing unassigned workers to it (up to 20)
 _fix=con();_es=_fix.execute('select id from events where active=1').fetchall()
 if len(_es)==1:
@@ -27,12 +30,6 @@ for _col in ['inlat','inlon','inacc','outlat','outlon','outacc']:
  except sqlite3.OperationalError:pass
 try:_m.execute('alter table workers add column hourly_rate REAL')
 except sqlite3.OperationalError:pass
-_m.execute('''CREATE TABLE IF NOT EXISTS att_edits(
- id INTEGER PRIMARY KEY, att_id INTEGER NOT NULL,
- edited_by_admin_id INTEGER NOT NULL, editor_name TEXT NOT NULL,
- edited_at TEXT NOT NULL, old_cin TEXT NOT NULL, old_cout TEXT,
- new_cin TEXT NOT NULL, new_cout TEXT)''')
-_m.execute('CREATE INDEX IF NOT EXISTS idx_att_edits_att_id ON att_edits(att_id)')
 _m.commit();_m.close()
 def adm(f):
  @wraps(f)
@@ -157,43 +154,28 @@ def ea(e):
   for wid in selected[:50]:c.execute('insert or ignore into ew values(?,?)',(e,wid))
   c.commit();flash('שיוכי העובדים נשמרו')
  ev=c.execute('select * from events where id=?',(e,)).fetchone();W=c.execute('select * from workers order by name').fetchall();S=c.execute('select w.* from workers w join ew on w.id=ew.worker_id where ew.event_id=?',(e,)).fetchall();R=c.execute('''select a.*,w.name,w.hourly_rate,
- (select count(*) from att_edits x where x.att_id=a.id) edit_count,
- (select x.editor_name from att_edits x where x.att_id=a.id order by x.id desc limit 1) editor_name,
- (select x.edited_at from att_edits x where x.att_id=a.id order by x.id desc limit 1) edited_at
+ (select count(*) from attendance_edit_history x where x.att_id=a.id) edit_count,
+ (select x.editor_name from attendance_edit_history x where x.att_id=a.id order by x.id desc limit 1) editor_name,
+ (select x.edited_at from attendance_edit_history x where x.att_id=a.id order by x.id desc limit 1) edited_at
  from att a join workers w on w.id=a.worker_id where a.event_id=? order by a.id desc''',(e,)).fetchall();assigned_count=len(S);entered=len({x['worker_id'] for x in R});working=sum(1 for x in R if not x['cout']);finished=sum(1 for x in R if x['cout']);total_minutes=sum(max(0,int((datetime.fromisoformat(x['cout'])-datetime.fromisoformat(x['cin'])).total_seconds()/60)) for x in R if x['cout']);row_pay={};total_pay=0.0
  for x in R:
   if x['cout'] and x['hourly_rate']:
    mins=max(0,int((datetime.fromisoformat(x['cout'])-datetime.fromisoformat(x['cin'])).total_seconds()/60));pay=(mins/60)*float(x['hourly_rate']);row_pay[x['id']]=pay;total_pay+=pay
- edit_history={x['id']:c.execute('select editor_name,edited_at,old_cin,old_cout,new_cin,new_cout from att_edits where att_id=? order by id desc',(x['id'],)).fetchall() for x in R}
+ edit_history={x['id']:c.execute('select editor_name,edited_at,old_cin,old_cout,new_cin,new_cout from attendance_edit_history where att_id=? order by id desc',(x['id'],)).fetchall() for x in R}
  summary={'assigned':assigned_count,'entered':entered,'working':working,'finished':finished,'total':f"{total_minutes//60}:{total_minutes%60:02d}",'pay':f'{total_pay:.2f}'};c.close();return render_template('event_admin.html',event=ev,workers=W,assigned=S,rows=R,assigned_ids={str(x['id']) for x in S},summary=summary,row_pay=row_pay,edit_history=edit_history)
 @app.post('/admin/event/<int:e>/report/<int:r>/edit')
 @adm
 def edit_attendance(e,r):
- c=con();admin=c.execute('select id,name from admins where id=?',(session.get('aid'),)).fetchone()
- if not admin:c.close();abort(403)
+ if not valid_edit_token(request.form.get('edit_token','')):abort(400)
+ c=con()
  try:
-  cin_value=request.form.get('cin','').strip()
-  if 'T' not in cin_value:raise ValueError('date and time required')
-  start=datetime.fromisoformat(cin_value)
-  if start.tzinfo is not None:raise ValueError('timezone is not accepted')
-  end_value=request.form.get('cout','').strip()
-  if end_value and 'T' not in end_value:raise ValueError('date and time required')
-  end=datetime.fromisoformat(end_value) if end_value else None
-  if end and end.tzinfo is not None:raise ValueError('timezone is not accepted')
- except ValueError:
-  c.close();flash('השעות לא תקינות. יש לבחור תאריך ושעה תקינים.');return redirect(f'/admin/event/{e}')
- if end and end<start:
-  c.close();flash('שעת היציאה לא יכולה להיות לפני שעת הכניסה.');return redirect(f'/admin/event/{e}')
- c.execute('BEGIN IMMEDIATE')
- row=c.execute('select cin,cout from att where id=? and event_id=?',(r,e)).fetchone()
- if not row:c.rollback();c.close();abort(404)
- new_cin=start.isoformat(timespec='seconds');new_cout=end.isoformat(timespec='seconds') if end else None
- if row['cin']==new_cin and row['cout']==new_cout:
-  c.rollback();c.close();flash('לא בוצע שינוי בשעות.');return redirect(f'/admin/event/{e}')
- edited_at=datetime.now(timezone.utc).isoformat(timespec='seconds')
- c.execute('insert into att_edits(att_id,edited_by_admin_id,editor_name,edited_at,old_cin,old_cout,new_cin,new_cout) values(?,?,?,?,?,?,?,?)',(r,admin['id'],admin['name'],edited_at,row['cin'],row['cout'],new_cin,new_cout))
- c.execute('update att set cin=?,cout=? where id=? and event_id=?',(new_cin,new_cout,r,e))
- c.commit();c.close();flash('שעות הנוכחות עודכנו ונשמרו בפרטי העריכה.');return redirect(f'/admin/event/{e}')
+  changed=save_attendance_edit(c,e,r,session.get('aid'),request.form.get('cin',''),request.form.get('cout',''))
+ except PermissionError:abort(403)
+ except LookupError:abort(404)
+ except ValueError as error:flash(str(error))
+ else:flash('השעות עודכנו ונשמרו עם סימון עריכת מנהל' if changed else 'לא בוצע שינוי בשעות')
+ finally:c.close()
+ return redirect(f'/admin/event/{e}')
 
 @app.post('/admin/event/<int:e>/report/<int:r>/delete')
 @adm
@@ -213,8 +195,8 @@ def uploads(n):return send_from_directory(UP,n)
 @adm
 def admin_reports():
  c=con();rows=c.execute("""select a.*,w.name worker_name,w.hourly_rate,e.name event_name,e.date event_date,
- exists(select 1 from att_edits x where x.att_id=a.id) edited,
- (select x.editor_name from att_edits x where x.att_id=a.id order by x.id desc limit 1) editor_name
+ exists(select 1 from attendance_edit_history x where x.att_id=a.id) edited,
+ (select x.editor_name from attendance_edit_history x where x.att_id=a.id order by x.id desc limit 1) editor_name
  from att a join workers w on w.id=a.worker_id join events e on e.id=a.event_id where a.cout is not null order by e.date desc,a.id desc""").fetchall();events={}
  for x in rows:
   try:mins=max(0,int((datetime.fromisoformat(x['cout'])-datetime.fromisoformat(x['cin'])).total_seconds()/60))
@@ -270,9 +252,10 @@ def reset_event_workers(e):
 @app.get('/admin/event/<int:e>/export.csv')
 @adm
 def export_event(e):
- c=con();rows=c.execute("""select a.*,w.name,(select editor_name from att_edits x where x.att_id=a.id order by x.id desc limit 1) editor_name from att a join workers w on w.id=a.worker_id where a.event_id=? order by a.id""",(e,)).fetchall()
- out=io.StringIO();out.write('\ufeff');w=csv.writer(out,delimiter='\t');w.writerow(['עובד','כניסה','יציאה','סהכ שעות','נערך על ידי מנהל','מיקום כניסה','מיקום יציאה'])
- for r in rows:w.writerow([r['name'],r['cin'],r['cout'] or '',dur(r['cin'],r['cout']),'כן - '+r['editor_name'] if r['editor_name'] else '',f"{r['inlat'] or ''},{r['inlon'] or ''}",f"{r['outlat'] or ''},{r['outlon'] or ''}"])
- c.close()
+ c=con();rows=c.execute('select a.*,w.name,w.hourly_rate,(select x.admin_name from attendance_edit_history x where x.attendance_id=a.id order by x.id desc limit 1) edit_admin from att a join workers w on w.id=a.worker_id where a.event_id=? order by a.id',(e,)).fetchall();c.close()
+ out=io.StringIO();out.write('\ufeff');writer=csv.writer(out,delimiter='\t')
+ writer.writerow(['עובד','כניסה','יציאה','סהכ שעות','נערך על ידי מנהל','מיקום כניסה','מיקום יציאה','שכר לשעה','סהכ לתשלום'])
+ for r in rows:
+  writer.writerow([r['name'],r['cin'],r['cout'] or '',dur(r['cin'],r['cout']),'נערך על ידי מנהל - '+r['edit_admin'] if r['edit_admin'] else '',f"{r['inlat'] or ''},{r['inlon'] or ''}",f"{r['outlat'] or ''},{r['outlon'] or ''}",f"{float(r['hourly_rate']):.2f}" if r['hourly_rate'] is not None else '',attendance_pay(r)])
  return Response(out.getvalue(),mimetype='application/vnd.ms-excel; charset=utf-8',headers={'Content-Disposition':f'attachment; filename=event-{e}-report.xls'})
 
