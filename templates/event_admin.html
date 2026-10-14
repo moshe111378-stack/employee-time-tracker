@@ -10,7 +10,7 @@
  <span>כניסה: {{r.cin}}</span><span>יציאה: {{r.cout or 'עדיין בעבודה'}}</span><span>סה״כ: {{dur(r.cin,r.cout)}}</span>
  {% if r.edit_count %}<span class="manager-edit-label">נערך על ידי מנהל{% if r.editor_name %} · {{r.editor_name}}{% endif %}</span>{% endif %}
  {% if r.hourly_rate %}<span>💰 ₪{{'%.2f'|format(r.hourly_rate)}} לשעה</span>{% if r.cout and row_pay.get(r.id) is not none %}<span class="pay-note"><b>💵 סה״כ לתשלום: ₪{{"%.2f"|format(row_pay.get(r.id))}}</b></span>{% endif %}{% endif %}
- <details class="attendance-edit"><summary>✏️ עריכת שעות כניסה ויציאה</summary><form action="/admin/event/{{event.id}}/report/{{r.id}}/edit" method="post" class="attendance-edit-form">
+ <details class="attendance-edit"><summary>✏️ עריכת שעות כניסה ויציאה</summary><form action="/admin/event/{{event.id}}/report/{{r.id}}/edit" method="post" class="attendance-edit-form"><input type="hidden" name="edit_token" value="{{attendance_edit_token()}}">
   <label for="cin-{{r.id}}">שעת כניסה</label><input id="cin-{{r.id}}" name="cin" type="datetime-local" step="60" value="{{r.cin[:16]}}" required>
   <label for="cout-{{r.id}}">שעת יציאה <span>(אפשר להשאיר ריק לעובד שעדיין במשמרת)</span></label><input id="cout-{{r.id}}" name="cout" type="datetime-local" step="60" value="{{r.cout[:16] if r.cout else ''}}">
   <button type="submit">שמירת שעות</button>
