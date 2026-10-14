@@ -34,6 +34,117 @@ def ensure_audit_schema(connection):
         old_cin, old_cout, new_cin, new_cout, edited_at FROM att_edits''')
     connection.execute(f'''CREATE INDEX IF NOT EXISTS idx_attendance_edit_history
         ON att_edits({attendance},id)''')
+    ensure_attendance_ids(connection)
+
+
+def ensure_attendance_ids(connection):
+    """Keep an ID high-water mark without rebuilding or rewriting old records.
+
+    Audit entries may outlive attendance rows. Reserve those IDs too, and
+    never lower the watermark when reports are deleted or the app restarts.
+    """
+    connection.execute('''CREATE TABLE IF NOT EXISTS attendance_id_state(
+        singleton INTEGER PRIMARY KEY CHECK(singleton=1), last_id INTEGER NOT NULL)''')
+    connection.execute('INSERT OR IGNORE INTO attendance_id_state VALUES(1,0)')
+    connection.execute('''UPDATE attendance_id_state SET last_id=MAX(last_id,
+        COALESCE((SELECT MAX(id) FROM att),0),
+        COALESCE((SELECT MAX(attendance_id) FROM attendance_edit_history),0))
+        WHERE singleton=1''')
+    # Preserve the watermark for all existing insertion/deletion paths as well.
+    connection.execute('''CREATE TRIGGER IF NOT EXISTS attendance_id_after_insert
+        AFTER INSERT ON att BEGIN
+        UPDATE attendance_id_state SET last_id=MAX(last_id,NEW.id) WHERE singleton=1;
+        END''')
+    connection.execute('''CREATE TRIGGER IF NOT EXISTS attendance_id_before_delete
+        BEFORE DELETE ON att BEGIN
+        UPDATE attendance_id_state SET last_id=MAX(last_id,OLD.id) WHERE singleton=1;
+        END''')
+
+
+def allocate_attendance_id(connection):
+    """Called inside the same write transaction as the new attendance row."""
+    if not connection.in_transaction:
+        raise RuntimeError('Attendance IDs require an active write transaction')
+    connection.execute('''UPDATE attendance_id_state SET last_id=MAX(last_id,
+        COALESCE((SELECT MAX(id) FROM att),0),
+        COALESCE((SELECT MAX(attendance_id) FROM attendance_edit_history),0))+1
+        WHERE singleton=1''')
+    return connection.execute(
+        'SELECT last_id FROM attendance_id_state WHERE singleton=1').fetchone()[0]
+
+
+class AttendanceRequestError(ValueError):
+    def __init__(self, message, status=409):
+        super().__init__(message)
+        self.status = status
+
+
+def record_attendance(connection, event_id, worker_id, action, now, save_photo,
+                      location, hourly_rate=None, checkout_event_only=False):
+    """Serialize worker check-in/out with manager edits across SQLite connections.
+
+    Do not add a unique index or clean up historical duplicates during startup:
+    existing records must remain available for a separate, reviewed repair.
+    """
+    try:
+        connection.execute('BEGIN IMMEDIATE')
+        if action not in ('in', 'out'):
+            raise AttendanceRequestError('פעולת נוכחות לא תקינה', 400)
+        if not connection.execute('SELECT id FROM events WHERE id=? AND active=1',
+                                  (event_id,)).fetchone():
+            raise AttendanceRequestError('אירוע לא נמצא', 404)
+        worker = connection.execute('SELECT * FROM workers WHERE id=?', (worker_id,)).fetchone()
+        if not worker:
+            raise AttendanceRequestError('עובד לא נמצא', 404)
+        # Some legacy sites close a shift only within the selected event.
+        # Keep that checkout behavior while blocking check-ins across all events.
+        if action == 'out' and checkout_event_only:
+            open_row = connection.execute('''SELECT * FROM att WHERE worker_id=?
+                AND event_id=? AND cout IS NULL ORDER BY id DESC LIMIT 1''',
+                (worker_id,event_id)).fetchone()
+        else:
+            open_row = connection.execute('''SELECT * FROM att WHERE worker_id=?
+                AND cout IS NULL ORDER BY id DESC LIMIT 1''', (worker_id,)).fetchone()
+        if action == 'in' and open_row:
+            raise AttendanceRequestError('כבר קיימת כניסה פעילה. יש לבצע יציאה לפני כניסה נוספת.')
+        if action == 'out' and not open_row:
+            raise AttendanceRequestError('אין כניסה פתוחה לסגירה')
+        rate = worker['hourly_rate']
+        if rate is None and hourly_rate:
+            try:
+                candidate = float(hourly_rate)
+            except ValueError:
+                pass
+            else:
+                if candidate > 0:
+                    rate = candidate
+                    connection.execute('UPDATE workers SET hourly_rate=? WHERE id=?',
+                                       (rate, worker_id))
+        current = now()
+        timestamp = current.isoformat(timespec='seconds')
+        photo_name = save_photo()
+        lat, lon, accuracy = location
+        total, pay = '', ''
+        if action == 'in':
+            attendance_id = allocate_attendance_id(connection)
+            connection.execute('''INSERT INTO att
+                (id,event_id,worker_id,cin,pinphoto,inlat,inlon,inacc)
+                VALUES(?,?,?,?,?,?,?,?)''',
+                (attendance_id,event_id,worker_id,timestamp,photo_name,lat,lon,accuracy))
+        else:
+            connection.execute('''UPDATE att SET cout=?,poutphoto=?,outlat=?,outlon=?,outacc=?
+                WHERE id=? AND cout IS NULL''',
+                (timestamp,photo_name,lat,lon,accuracy,open_row['id']))
+            minutes = max(0, int((current - datetime.fromisoformat(open_row['cin'])).total_seconds()/60))
+            total = f'{minutes//60}:{minutes%60:02d}'
+            if rate:
+                pay = f'{minutes/60*float(rate):.2f}'
+        connection.commit()
+        return dict(ok=True, type=action, total=total, time=current.strftime('%H:%M'),
+                    hourly=rate, pay=pay)
+    except Exception:
+        connection.rollback()
+        raise
 
 
 def attendance_edit_token():

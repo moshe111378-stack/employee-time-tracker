@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from functools import wraps
 from flask import *
-from attendance_admin import (ensure_audit_schema, attendance_edit_token, valid_edit_token, save_attendance_edit, attendance_pay)
+from attendance_admin import (ensure_audit_schema, attendance_edit_token, valid_edit_token, save_attendance_edit, attendance_pay, record_attendance, AttendanceRequestError)
 import csv,io
 from werkzeug.security import generate_password_hash,check_password_hash
 app=Flask(__name__);app.secret_key=os.getenv('SECRET_KEY','change-me');app.permanent_session_lifetime=timedelta(days=365);app.config.update(SESSION_COOKIE_HTTPONLY=True,SESSION_COOKIE_SECURE=True,SESSION_COOKIE_SAMESITE='Lax')
@@ -81,27 +81,27 @@ def event(e):
  c=con();ev=c.execute('select * from events where id=? and active=1',(e,)).fetchone();ws=c.execute('select w.* from workers w join ew on w.id=ew.worker_id where ew.event_id=? order by w.name',(e,)).fetchall()
  if not ev:c.close();abort(404)
  if request.method=='POST':
-  wid=request.form.get('wid');w=c.execute('select * from workers where id=?',(wid,)).fetchone();rate=request.form.get('hourly_rate')
-  if not session.get('worker_id') or str(session.get('worker_id'))!=str(wid):c.close();return jsonify(ok=False,error='המכשיר אינו מאומת לעובד הזה. יש לבצע אימות חד-פעמי.'),403 if request.headers.get('X-Requested-With')=='fetch' else redirect('/')
-  if w and w['hourly_rate'] is None and rate:
-   try:
-    rv=float(rate)
-    if rv>0:c.execute('update workers set hourly_rate=? where id=?',(rv,wid));c.commit();w=c.execute('select * from workers where id=?',(wid,)).fetchone()
-   except ValueError:pass
-  openr=c.execute('select * from att where worker_id=? and cout is null order by id desc limit 1',(wid,)).fetchone()
-  if not w:flash('עובד לא נמצא')
-  elif request.form['act']=='in' and openr:
-   c.close();return jsonify(ok=False,error='כבר קיימת כניסה פעילה. יש לבצע יציאה לפני כניסה נוספת.'),409 if request.headers.get('X-Requested-With')=='fetch' else redirect('/')
-  elif request.form['act']=='in':c.execute('insert into att(event_id,worker_id,cin,pinphoto,inlat,inlon,inacc) values(?,?,?,?,?,?,?)',(e,wid,israel_now().isoformat(timespec='seconds'),photo(request.files.get('photo')),request.form.get('lat'),request.form.get('lon'),request.form.get('acc')));c.commit()
-  elif not openr:
-   c.close();return jsonify(ok=False,error='אין כניסה פעילה. אתה לא במשמרת.'),409 if request.headers.get('X-Requested-With')=='fetch' else redirect('/')
-  else:c.execute('update att set cout=?,poutphoto=?,outlat=?,outlon=?,outacc=? where id=?',(israel_now().isoformat(timespec='seconds'),photo(request.files.get('photo')),request.form.get('lat'),request.form.get('lon'),request.form.get('acc'),openr['id']));c.commit()
-  result_type=request.form['act'];total='';
-  if result_type=='out' and openr:
-   end=israel_now();start=datetime.fromisoformat(openr['cin']);mins=max(0,int((end-start).total_seconds()/60));total=f'{mins//60}:{mins%60:02d}'
-  pay='';hourly=w['hourly_rate'] if w else None
-  if result_type=='out' and openr and hourly:pay=f'{(mins/60)*float(hourly):.2f}'
-  c.close();return jsonify(ok=True,type=result_type,total=total,time=israel_now().strftime('%H:%M'),hourly=hourly,pay=pay) if request.headers.get('X-Requested-With')=='fetch' else redirect('/')
+  wid=request.form.get('wid')
+  if not session.get('worker_id') or str(session.get('worker_id'))!=str(wid):
+   c.close()
+   message='המכשיר אינו מאומת לעובד הזה. יש לבצע אימות חד-פעמי.'
+   if request.headers.get('X-Requested-With')=='fetch':return jsonify(ok=False,error=message),403
+   flash(message);return redirect('/')
+  try:
+   result=record_attendance(c,e,wid,request.form.get('act'),israel_now,
+    lambda:photo(request.files.get('photo')),
+    (request.form.get('lat'),request.form.get('lon'),request.form.get('acc')),
+    request.form.get('hourly_rate'))
+  except AttendanceRequestError as error:
+   if request.headers.get('X-Requested-With')=='fetch':return jsonify(ok=False,error=str(error)),error.status
+   flash(str(error));return redirect('/')
+  except sqlite3.OperationalError as error:
+   if 'locked' not in str(error).lower() and 'busy' not in str(error).lower():raise
+   message='הדיווח לא נשמר כי המערכת עסוקה. יש לנסות שוב בעוד רגע.'
+   if request.headers.get('X-Requested-With')=='fetch':return jsonify(ok=False,error=message),503
+   flash(message);return redirect('/')
+  finally:c.close()
+  return jsonify(result) if request.headers.get('X-Requested-With')=='fetch' else redirect('/')
  c.close();return render_template('event.html',event=ev,workers=ws)
 @app.post('/worker-device/verify')
 def worker_device_verify():
