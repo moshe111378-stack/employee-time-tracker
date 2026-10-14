@@ -23,7 +23,7 @@ jobs:
       - name: Install application and test dependencies
         run: python -m pip install -r requirements.txt pytest==9.1.1
       - name: Test edits, permissions, audit compatibility, totals and export
-        run: python -m pytest -q tests/test_attendance_edit.py --junitxml=test-results/attendance.xml
+        run: python -m pytest -q tests/ --junitxml=test-results/attendance.xml
       - uses: actions/upload-artifact@v4
         if: always()
         with:
