@@ -1,9 +1,53 @@
 {% extends 'base.html' %}{% block c %}
-<h1>📊 דוחות</h1>
+<style>.report-entry[hidden],.report-card[hidden]{display:none!important}</style><h1>📊 דוחות</h1>
 <section class="panel"><input id="rq" placeholder="🔎 חיפוש אירוע..." oninput="filterReports()">
-<div class="report-filters"><button type="button" onclick="setPeriod('week')">שבועי</button><button type="button" onclick="setPeriod('month')">חודשי</button><button type="button" onclick="setPeriod('year')">שנתי</button><button type="button" onclick="setPeriod('all')">כל התקופה</button></div>
-<div class="stats" id="reportSummary"><div><b id="se">0</b><span>אירועים</span></div><div><b id="sw">0</b><span>עובדים</span></div><div><b id="sh">0:00</b><span>שעות</span></div><div><b id="sp">₪0</b><span>שכר</span></div></div></section>
-<div id="reports">{% for e in reports %}<section class="panel report-card" data-name="{{e.name}}" data-date="{{e.date}}" data-minutes="{{e.minutes}}" data-pay="{{e.pay}}" data-workers="{% for w in e.workers %}{{w}},{% endfor %}"><h2>{{e.name}}</h2><p class="muted">📅 {{e.date}}</p><div class="stats"><div><b>{{e.worker_count}}</b><span>עובדים</span></div><div><b>{{e.hours}}</b><span>שעות</span></div><div><b>₪{{e.pay_text}}</b><span>שכר</span></div></div><details><summary>פירוט עובדים</summary>{% for r in e.rows %}<div class="item"><b>{{r.worker}}</b><br>כניסה {{r.cin[11:16]}} · יציאה {{r.cout[11:16]}} · {{r.minutes//60}}:{{'%02d'%(r.minutes%60)}} שעות · ₪{{'%.2f'%r.rate}} לשעה · סה״כ ₪{{'%.2f'%r.pay}}{% if r.edit_admin %}<br><strong class="manager-edit-badge">נערך על ידי מנהל · {{r.edited_at}}</strong>{% endif %}</div>{% endfor %}</details></section>{% else %}<section class="panel"><p class="muted">אין עדיין דוחות של משמרות שהסתיימו.</p></section>{% endfor %}</div>
-<script>
-let period='all';function setPeriod(p){period=p;filterReports()}function filterReports(){const q=(document.getElementById('rq').value||'').toLowerCase(),now=new Date();let ec=0,mins=0,pay=0,workers=new Set();document.querySelectorAll('.report-card').forEach(el=>{let ok=el.dataset.name.toLowerCase().includes(q),d=new Date(el.dataset.date+'T00:00:00');if(ok&&period==='year')ok=d.getFullYear()===now.getFullYear();if(ok&&period==='month')ok=d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth();if(ok&&period==='week'){let s=new Date(now);s.setHours(0,0,0,0);s.setDate(s.getDate()-6);ok=d>=s&&d<=now}el.style.display=ok?'':'none';if(ok){ec++;mins+=+el.dataset.minutes;pay+=+el.dataset.pay;el.dataset.workers.split(',').filter(Boolean).forEach(x=>workers.add(x))}});se.textContent=ec;sw.textContent=workers.size;sh.textContent=Math.floor(mins/60)+':'+String(mins%60).padStart(2,'0');sp.textContent='₪'+pay.toFixed(2)}filterReports();
+<div class="report-filters"><button type="button" onclick="setPeriod('week')">7 ימים אחרונים</button><button type="button" onclick="setPeriod('month')">החודש</button><button type="button" onclick="setPeriod('year')">השנה</button><button type="button" onclick="setPeriod('all')">כל התקופה</button></div>
+<div class="stats" id="reportSummary"><div><b id="se">0</b><span>אירועים</span></div><div><b id="sw">0</b><span>עובדים</span></div><div><b id="sh">0:00</b><span>שעות</span></div><div><b id="sp">₪0</b><span>שכר</span></div></div>
+<p id="partialPeriodNotice" hidden>יש דיווחים שחופפים רק לחלק מהתקופה שנבחרה. הם מוצגים במלואם ונכללים במלואם בסיכום; שעות תקופתיות אינן מחולקות אוטומטית לפי ימים.</p>
+<p id="unpricedNotice" hidden>יש דיווחים ללא שכר שעתי. השעות כלולות בסיכום, אך סכום התשלום אינו כולל דיווחים אלה.</p>
+</section>
+<div id="reports">{% for e in reports %}
+<section class="panel report-card" data-name="{{e.name}}">
+<h2>{{e.name}}</h2><p class="muted">📅 {{e.date or 'ללא תאריך אירוע'}}{% if e.end_date %} עד {{e.end_date}}{% endif %}</p>
+<div class="stats"><div><b data-summary="workers">{{e.worker_count}}</b><span>עובדים</span></div><div><b data-summary="hours">{{e.hours}}</b><span>שעות</span></div><div><b data-summary="pay">₪{{e.pay_text}}</b><span>שכר</span></div></div>
+<details><summary>פירוט עובדים</summary>{% for r in e.rows %}
+<div class="item report-entry" data-start="{{r.start_date}}" data-end="{{r.end_date}}" data-minutes="{{r.minutes}}" data-pay="{{r.pay}}" data-worker="{{r.worker_id}}" data-priced="{{'0' if r.rate is none else '1'}}">
+<b>{{r.worker_name}}</b><br>
+{% if r.manual %}<strong>שעות שהוזנו ידנית</strong> · {{r.start_date}} עד {{r.end_date}}<br>{% else %}כניסה {{r.cin}} · יציאה {{r.cout}}<br>{% endif %}
+{{r.minutes|hours_text}} שעות{% if r.rate is not none %} · ₪{{'%.2f'%r.rate}} לשעה · סה״כ ₪{{'%.2f'%r.pay}}{% else %} · שכר לא הוגדר{% endif %}
+{% if r.manual %}<br>הוזן על ידי {{r.admin_name}} · {{r.created_at}}{% if r.note %}<br>{{r.note}}{% endif %}{% elif r.edit_admin %}<br><strong class="manager-edit-badge">נערך על ידי מנהל · {{r.edited_at}}</strong>{% endif %}
+<span class="partial-entry" hidden><br>דיווח זה חופף חלקית לתקופה ונכלל במלואו.</span>
+</div>{% endfor %}</details>
+</section>{% else %}<section class="panel"><p class="muted">אין עדיין דוחות של שעות שהושלמו.</p></section>{% endfor %}</div>
+{% endblock %}
+{% block scripts %}<script>
+let period='all';const reportToday={{today|tojson}};
+function setPeriod(p){period=p;filterReports()}
+function filterReports(){
+ const q=(document.getElementById('rq').value||'').trim().toLowerCase();
+ const now=new Date(reportToday+'T12:00:00');let start='',end='';
+ const iso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+ if(period!=='all'){end=reportToday;if(period==='week')now.setDate(now.getDate()-6);if(period==='month')now.setDate(1);if(period==='year'){now.setMonth(0);now.setDate(1)}start=iso(now)}
+ let ec=0,mins=0,pay=0,partial=false,unpriced=false;const workers=new Set();
+ document.querySelectorAll('.report-card').forEach(card=>{
+  let cm=0,cp=0,count=0;const cw=new Set(),match=card.dataset.name.toLowerCase().includes(q);
+  card.querySelectorAll('.report-entry').forEach(row=>{
+   const visible=match&&(!start||(row.dataset.start<=end&&row.dataset.end>=start));row.hidden=!visible;
+   const incomplete=visible&&!!start&&(row.dataset.start<start||row.dataset.end>end);
+   row.querySelector('.partial-entry').hidden=!incomplete;
+   if(visible){count++;cm+=Number(row.dataset.minutes);cp+=Number(row.dataset.pay);cw.add(row.dataset.worker);workers.add(row.dataset.worker);partial=partial||incomplete;unpriced=unpriced||row.dataset.priced==='0'}
+  });
+  card.hidden=count===0;
+  card.querySelector('[data-summary="workers"]').textContent=cw.size;
+  card.querySelector('[data-summary="hours"]').textContent=Math.floor(cm/60)+':'+String(cm%60).padStart(2,'0');
+  card.querySelector('[data-summary="pay"]').textContent='₪'+cp.toFixed(2);
+  if(count){ec++;mins+=cm;pay+=cp}
+ });
+ document.getElementById('se').textContent=ec;document.getElementById('sw').textContent=workers.size;
+ document.getElementById('sh').textContent=Math.floor(mins/60)+':'+String(mins%60).padStart(2,'0');
+ document.getElementById('sp').textContent='₪'+pay.toFixed(2);
+ document.getElementById('partialPeriodNotice').hidden=!partial;
+ document.getElementById('unpricedNotice').hidden=!unpriced;
+}
+filterReports();
 </script>{% endblock %}

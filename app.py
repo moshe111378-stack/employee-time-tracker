@@ -1,4 +1,4 @@
-import os,sqlite3,uuid,time,random
+import os,sqlite3,uuid,time,random,secrets
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from functools import wraps
@@ -30,6 +30,9 @@ try:_m.execute('alter table workers add column hourly_rate REAL')
 except sqlite3.OperationalError:pass
 try:_m.execute('alter table workers add column device_code_hash TEXT')
 except sqlite3.OperationalError:pass
+try:_m.execute('alter table events add column end_date TEXT')
+except sqlite3.OperationalError as exc:
+ if 'duplicate column name' not in str(exc).lower():raise
 _m.commit();_m.close()
 def adm(f):
  @wraps(f)
@@ -44,6 +47,9 @@ def dur(a,b):
 app.jinja_env.globals['dur']=dur
 from assignment_sync import register_sync, assignment_form_context, save_assignments
 register_sync(app, con, ISRAEL_TZ)
+from manual_hours import register_manual_hours, manual_rows, hours_text, money_text
+register_manual_hours(app, con, adm, israel_now, ISRAEL_TZ)
+from event_dates import event_period, validate_event_form
 @app.after_request
 def no_cache_assets(r):
  if request.path.startswith('/static/'):
@@ -121,7 +127,8 @@ def admin():
 @app.get('/admin/events')
 @adm
 def admin_events():
- c=con();E=c.execute('select * from events order by id desc').fetchall();W=c.execute('select * from workers order by name').fetchall();c.close();return render_template('admin_events.html',events=E,workers=W)
+ session.setdefault('event_dates_csrf',secrets.token_urlsafe(32))
+ c=con();E=c.execute('select * from events order by id desc').fetchall();W=c.execute('select * from workers order by name').fetchall();c.close();return render_template('admin_events.html',events=E,workers=W,event_dates_csrf=session['event_dates_csrf'])
 @app.get('/admin/workers')
 @adm
 def admin_workers():
@@ -133,13 +140,21 @@ def admin_admins():
 @app.post('/admin/add-event')
 @adm
 def ae():
- c=con();n=c.execute('select count(*) n from events').fetchone()['n']
- if n>=100:flash('מקסימום 100 אירועים')
- else:
-  cur=c.execute('insert into events(name,date) values(?,?)',(request.form['name'],request.form.get('date')));eid=cur.lastrowid
-  for wid in request.form.getlist('worker_ids')[:50]:c.execute('insert or ignore into ew values(?,?)',(eid,wid))
-  c.commit()
- c.close();return redirect('/admin')
+ c=con()
+ try:
+  validate_event_form(c)
+  try:start,end=event_period(request.form)
+  except ValueError as exc:flash(str(exc));return redirect('/admin/events')
+  if not request.form.get('name','').strip():flash('יש להזין שם אירוע');return redirect('/admin/events')
+  c.execute('BEGIN IMMEDIATE')
+  if c.execute('select count(*) n from events').fetchone()['n']>=100:flash('מקסימום 100 אירועים')
+  else:
+   cur=c.execute('insert into events(name,date,end_date) values(?,?,?)',(request.form['name'].strip(),start,end));eid=cur.lastrowid
+   selected=request.form.getlist('worker_ids')[:50]
+   c.executemany('insert or ignore into ew(event_id,worker_id) select ?,id from workers where id=?',[(eid,wid) for wid in selected])
+   c.commit();flash('האירוע נוצר עם תאריך התחלה ותאריך סיום')
+ finally:c.close()
+ return redirect('/admin/events')
 @app.post('/admin/add-worker')
 @adm
 def aw():
@@ -179,7 +194,13 @@ def ea(e):
  for x in R:
   if x['cout'] and x['hourly_rate']:
    mins=max(0,int((datetime.fromisoformat(x['cout'])-datetime.fromisoformat(x['cin'])).total_seconds()/60));pay=(mins/60)*float(x['hourly_rate']);row_pay[x['id']]=pay;total_pay+=pay
- summary={'assigned':assigned_count,'entered':entered,'working':working,'finished':finished,'total':f"{total_minutes//60}:{total_minutes%60:02d}",'pay':f'{total_pay:.2f}'};c.close();return render_template('event_admin.html',event=ev,workers=W,assigned=S,rows=R,assigned_ids={str(x['id']) for x in S},summary=summary,row_pay=row_pay,**assignment_context)
+ manual_entries=manual_rows(c,e,include_cancelled=True)
+ active_manual=[x for x in manual_entries if not x['cancelled_at']]
+ total_minutes+=sum(x['minutes'] for x in active_manual)
+ total_pay+=sum(x['pay_agorot'] or 0 for x in active_manual)/100
+ session.setdefault('manual_hours_csrf',secrets.token_urlsafe(32))
+ summary={'assigned':assigned_count,'entered':entered,'working':working,'finished':finished,'total':hours_text(total_minutes),'pay':f'{total_pay:.2f}','manual_count':len(active_manual),'unpriced_manual':sum(x['rate_agorot'] is None for x in active_manual)}
+ c.close();return render_template('event_admin.html',event=ev,workers=W,assigned=S,rows=R,assigned_ids={str(x['id']) for x in S},summary=summary,row_pay=row_pay,manual_entries=manual_entries,manual_hours_csrf=session['manual_hours_csrf'],**assignment_context)
 @app.post('/admin/event/<int:e>/report/<int:r>/edit')
 @adm
 def edit_attendance(e,r):
@@ -244,16 +265,11 @@ def uploads(n):
 @app.get('/admin/reports')
 @adm
 def admin_reports():
- c=con();rows=c.execute("""select a.*,w.name worker_name,w.hourly_rate,e.name event_name,e.date event_date,(select x.admin_name from att_edits x where x.attendance_id=a.id order by x.id desc limit 1) edit_admin,(select x.edited_at from att_edits x where x.attendance_id=a.id order by x.id desc limit 1) edited_at from att a join workers w on w.id=a.worker_id join events e on e.id=a.event_id where a.cout is not null order by e.date desc,a.id desc""").fetchall();events={}
- for x in rows:
-  try:mins=max(0,int((datetime.fromisoformat(x['cout'])-datetime.fromisoformat(x['cin'])).total_seconds()/60))
-  except:mins=0
-  pay=(mins/60)*float(x['hourly_rate'] or 0);eid=x['event_id']
-  if eid not in events:events[eid]={'id':eid,'name':x['event_name'],'date':x['event_date'],'minutes':0,'pay':0.0,'workers':set(),'rows':[]}
-  ev=events[eid];ev['minutes']+=mins;ev['pay']+=pay;ev['workers'].add(x['worker_id']);ev['rows'].append({'worker':x['worker_name'],'cin':x['cin'],'cout':x['cout'],'minutes':mins,'rate':float(x['hourly_rate'] or 0),'pay':pay,'edit_admin':x['edit_admin'],'edited_at':x['edited_at']})
- out=[]
- for ev in events.values():ev['worker_count']=len(ev['workers']);ev['hours']=f"{ev['minutes']//60}:{ev['minutes']%60:02d}";ev['pay_text']=f"{ev['pay']:.2f}";out.append(ev)
- c.close();return render_template('admin_reports.html',reports=out)
+ from period_reports import report_groups
+ c=con()
+ try:reports=report_groups(c)
+ finally:c.close()
+ return render_template('admin_reports.html',reports=reports,today=israel_now().date().isoformat())
 
 
 @app.get('/health')
@@ -262,7 +278,16 @@ def health():return {'ok':True}
 @app.post('/admin/event/<int:e>/edit')
 @adm
 def edit_event(e):
- c=con();c.execute('update events set name=?,date=? where id=?',(request.form['name'],request.form.get('date'),e));c.commit();c.close();flash('האירוע עודכן');return redirect('/admin')
+ c=con()
+ try:
+  validate_event_form(c)
+  if not c.execute('select id from events where id=?',(e,)).fetchone():abort(404)
+  try:start,end=event_period(request.form)
+  except ValueError as exc:flash(str(exc));return redirect('/admin/events')
+  if not request.form.get('name','').strip():flash('יש להזין שם אירוע');return redirect('/admin/events')
+  c.execute('update events set name=?,date=?,end_date=? where id=?',(request.form['name'].strip(),start,end,e));c.commit()
+ finally:c.close()
+ flash('תאריכי האירוע עודכנו');return redirect('/admin/events')
 @app.post('/admin/event/<int:e>/delete')
 @adm
 def delete_event(e):
@@ -276,8 +301,8 @@ def reset_event_workers(e):
 @app.get('/admin/event/<int:e>/export.csv')
 @adm
 def export_event(e):
- c=con();rows=c.execute('select a.*,w.name,(select x.admin_name from att_edits x where x.attendance_id=a.id order by x.id desc limit 1) edit_admin from att a join workers w on w.id=a.worker_id where a.event_id=? order by a.id',(e,)).fetchall();c.close()
- out=io.StringIO();out.write('\ufeff');w=csv.writer(out,delimiter='\t');w.writerow(['עובד','כניסה','יציאה','סהכ שעות','מיקום כניסה','מיקום יציאה','נערך על ידי מנהל'])
- for r in rows:w.writerow([r['name'],r['cin'],r['cout'] or '',dur(r['cin'],r['cout']),f"{r['inlat'] or ''},{r['inlon'] or ''}",f"{r['outlat'] or ''},{r['outlon'] or ''}",'נערך על ידי מנהל' if r['edit_admin'] else ''])
- return Response(out.getvalue(),mimetype='application/vnd.ms-excel; charset=utf-8',headers={'Content-Disposition':f'attachment; filename=event-{e}-report.xls'})
-
+ from period_reports import export_rows
+ c=con()
+ try:output=export_rows(c,e,dur)
+ finally:c.close()
+ return Response(output,mimetype='application/vnd.ms-excel; charset=utf-8',headers={'Content-Disposition':f'attachment; filename=event-{e}-report.xls'})

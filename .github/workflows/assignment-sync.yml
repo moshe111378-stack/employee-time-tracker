@@ -4,7 +4,7 @@ on:
     branches: [codex/assignment-sync-back-navigation-20261015]
   pull_request:
     branches: [main]
-    paths: ['app.py', 'assignment_sync.py', 'templates/**', 'static/*sync.js', 'tests/**', '.github/workflows/assignment-sync.yml']
+    paths: ['app.py', 'assignment_sync.py', 'manual_hours.py', 'period_reports.py', 'event_dates.py', 'templates/**', 'static/*sync.js', 'tests/**', '.github/workflows/assignment-sync.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -24,7 +24,7 @@ jobs:
           python -m pip install -r requirements.txt pytest==8.4.2
           npm install --prefix "$RUNNER_TEMP/sync-dom" jsdom@26.1.0 --no-audit --no-fund
       - name: Assignment persistence and navigation
-        run: python -m pytest tests/test_assignment_sync.py -q
+        run: python -m pytest tests -q
       - name: Browser-state and form preservation
         env:
           NODE_PATH: ${{ runner.temp }}/sync-dom/node_modules
@@ -32,5 +32,6 @@ jobs:
         run: |
           python tests/render_sync_fixtures.py "$SYNC_FIXTURES"
           node tests/worker_sync.test.cjs
+          node tests/period_reports.test.cjs
           node --check static/worker-sync.js
           node --check static/event-sync.js
