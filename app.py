@@ -20,17 +20,7 @@ def init():
  if c.execute('select count(*) n from admins').fetchone()['n']==0:c.execute('insert into admins(name,user,pw) values(?,?,?)',('מנהל ראשי',os.getenv('ADMIN_USER','admin'),generate_password_hash(os.getenv('ADMIN_PASSWORD','change-this-password'))))
  c.commit();c.close()
 init()
-# One-time worker-device auth reset only; admin sessions/accounts are untouched
-if os.getenv('WORKER_DEVICE_AUTH_RESET_V1')=='1':
- _r=con();_r.execute('update workers set device_code_hash=null');_r.commit();_r.close()
-# One-time safe assignment: when exactly one active event exists, attach existing unassigned workers to it (up to 20)
-_fix=con();_es=_fix.execute('select id from events where active=1').fetchall()
-if len(_es)==1:
- _eid=_es[0]['id'];_count=_fix.execute('select count(*) n from ew where event_id=?',(_eid,)).fetchone()['n']
- _missing=_fix.execute('select id from workers where id not in (select worker_id from ew where event_id=?) order by id',(_eid,)).fetchall()
- for _w in _missing[:max(0,20-_count)]:_fix.execute('insert or ignore into ew values(?,?)',(_eid,_w['id']))
- _fix.commit()
-_fix.close()
+# Enrollment and saved assignments are never rewritten during process startup.
 # Safe migration for existing databases
 _m=con()
 for _col in ['inlat','inlon','inacc','outlat','outlon','outacc']:
@@ -52,6 +42,8 @@ def dur(a,b):
  if not b:return 'פעיל'
  d=datetime.fromisoformat(b)-datetime.fromisoformat(a);m=int(d.total_seconds()/60);return f'{m//60}:{m%60:02d}'
 app.jinja_env.globals['dur']=dur
+from assignment_sync import register_sync, assignment_form_context, save_assignments
+register_sync(app, con, ISRAEL_TZ)
 @app.after_request
 def no_cache_assets(r):
  if request.path.startswith('/static/'):
@@ -80,6 +72,8 @@ def event(e):
  if request.method=='POST':
   wid=request.form.get('wid');w=c.execute('select * from workers where id=?',(wid,)).fetchone();rate=request.form.get('hourly_rate')
   if not session.get('worker_id') or str(session.get('worker_id'))!=str(wid):c.close();return jsonify(ok=False,error='המכשיר אינו מאומת לעובד הזה. יש לבצע אימות חד-פעמי.'),403 if request.headers.get('X-Requested-With')=='fetch' else redirect('/')
+  if request.form.get('act')=='in' and not c.execute('select 1 from ew where event_id=? and worker_id=?',(e,wid)).fetchone():
+   c.close();return jsonify(ok=False,error='השיוך לאירוע השתנה. יש לבחור אירוע עדכני.'),409
   if w and w['hourly_rate'] is None and rate:
    try:
     rv=float(rate)
@@ -174,15 +168,18 @@ def aa():
 def ea(e):
  c=con()
  if request.method=='POST':
-  selected=request.form.getlist('worker_ids')
-  c.execute('delete from ew where event_id=?',(e,))
-  for wid in selected[:50]:c.execute('insert or ignore into ew values(?,?)',(e,wid))
-  c.commit();flash('שיוכי העובדים נשמרו')
+  try:save_assignments(c,e)
+  finally:c.close()
+  flash('שיוכי העובדים נשמרו. העובדים יראו את העדכון אוטומטית.')
+  return redirect(f'/admin/event/{e}')
+ if not c.execute('select id from events where id=?',(e,)).fetchone():c.close();abort(404)
+ try:assignment_context=assignment_form_context(c,e)
+ except BaseException:c.close();raise
  ev=c.execute('select * from events where id=?',(e,)).fetchone();W=c.execute('select * from workers order by name').fetchall();S=c.execute('select w.* from workers w join ew on w.id=ew.worker_id where ew.event_id=?',(e,)).fetchall();R=c.execute("select a.*,w.name,w.hourly_rate,(select x.admin_name from att_edits x where x.attendance_id=a.id order by x.id desc limit 1) edit_admin,(select x.edited_at from att_edits x where x.attendance_id=a.id order by x.id desc limit 1) edited_at from att a join workers w on w.id=a.worker_id where a.event_id=? order by a.id desc",(e,)).fetchall();assigned_count=len(S);entered=len({x['worker_id'] for x in R});working=sum(1 for x in R if not x['cout']);finished=sum(1 for x in R if x['cout']);total_minutes=sum(max(0,int((datetime.fromisoformat(x['cout'])-datetime.fromisoformat(x['cin'])).total_seconds()/60)) for x in R if x['cout']);row_pay={};total_pay=0.0
  for x in R:
   if x['cout'] and x['hourly_rate']:
    mins=max(0,int((datetime.fromisoformat(x['cout'])-datetime.fromisoformat(x['cin'])).total_seconds()/60));pay=(mins/60)*float(x['hourly_rate']);row_pay[x['id']]=pay;total_pay+=pay
- summary={'assigned':assigned_count,'entered':entered,'working':working,'finished':finished,'total':f"{total_minutes//60}:{total_minutes%60:02d}",'pay':f'{total_pay:.2f}'};c.close();return render_template('event_admin.html',event=ev,workers=W,assigned=S,rows=R,assigned_ids={str(x['id']) for x in S},summary=summary,row_pay=row_pay)
+ summary={'assigned':assigned_count,'entered':entered,'working':working,'finished':finished,'total':f"{total_minutes//60}:{total_minutes%60:02d}",'pay':f'{total_pay:.2f}'};c.close();return render_template('event_admin.html',event=ev,workers=W,assigned=S,rows=R,assigned_ids={str(x['id']) for x in S},summary=summary,row_pay=row_pay,**assignment_context)
 @app.post('/admin/event/<int:e>/report/<int:r>/edit')
 @adm
 def edit_attendance(e,r):
@@ -265,3 +262,4 @@ def export_event(e):
  out=io.StringIO();out.write('\ufeff');w=csv.writer(out,delimiter='\t');w.writerow(['עובד','כניסה','יציאה','סהכ שעות','מיקום כניסה','מיקום יציאה','נערך על ידי מנהל'])
  for r in rows:w.writerow([r['name'],r['cin'],r['cout'] or '',dur(r['cin'],r['cout']),f"{r['inlat'] or ''},{r['inlon'] or ''}",f"{r['outlat'] or ''},{r['outlon'] or ''}",'נערך על ידי מנהל' if r['edit_admin'] else ''])
  return Response(out.getvalue(),mimetype='application/vnd.ms-excel; charset=utf-8',headers={'Content-Disposition':f'attachment; filename=event-{e}-report.xls'})
+

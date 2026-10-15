@@ -1,5 +1,5 @@
 {% extends 'base.html' %}{% block c %}
-<a class="screen-back admin-back" href="/admin">←</a><h1>📊 דוחות</h1>
+<h1>📊 דוחות</h1>
 <section class="panel"><input id="rq" placeholder="🔎 חיפוש אירוע..." oninput="filterReports()">
 <div class="report-filters"><button type="button" onclick="setPeriod('week')">שבועי</button><button type="button" onclick="setPeriod('month')">חודשי</button><button type="button" onclick="setPeriod('year')">שנתי</button><button type="button" onclick="setPeriod('all')">כל התקופה</button></div>
 <div class="stats" id="reportSummary"><div><b id="se">0</b><span>אירועים</span></div><div><b id="sw">0</b><span>עובדים</span></div><div><b id="sh">0:00</b><span>שעות</span></div><div><b id="sp">₪0</b><span>שכר</span></div></div></section>
