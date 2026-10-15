@@ -1,0 +1,23 @@
+<section class="panel" id="manualHours">
+  <h2>שעות שהוזנו ידנית</h2>
+  <p class="muted">תוספות לפי תקופה, ללא יצירת משמרת כניסה ויציאה.</p>
+  {% for r in manual_entries %}
+  <div class="record" id="manual-hours-{{r.id}}">
+    <strong>{{r.worker_name}}</strong>
+    <span>תקופה: {{r.start_date}} עד {{r.end_date}}, כולל</span>
+    <span>שעות שנוספו: <b>{{r.minutes|hours_text}}</b></span>
+    {% if r.rate_agorot is not none %}<span>שכר לשעה: ₪{{r.rate_agorot|money_text}} · לתשלום: ₪{{r.pay_agorot|money_text}}</span>
+    {% else %}<span>שכר לא הוגדר לדיווח זה; השעות כלולות בסיכום, ללא סכום לתשלום.</span>{% endif %}
+    {% if r.note %}<span>הערה: {{r.note}}</span>{% endif %}
+    <span class="manager-edit-badge">הוזן ידנית על ידי {{r.admin_name}} · {{r.created_at}}</span>
+    {% if r.cancelled_at %}
+      <strong>בוטל על ידי {{r.cancelled_by_name}} · {{r.cancelled_at}} — אינו נכלל בסכומים</strong>
+    {% else %}
+      <form action="{{url_for('cancel_event_hours',e=event.id,h=r.id)}}" method="post" onsubmit="return prettyConfirm(event,'לבטל את הזנת השעות הזו? היא תישאר בהיסטוריה ולא תיכלל בסכומים.','ביטול הזנת שעות','כן, בטל הזנה')">
+        <input type="hidden" name="csrf" value="{{manual_hours_csrf}}">
+        <button type="submit" class="gray">בטל הזנה זו</button>
+      </form>
+    {% endif %}
+  </div>
+  {% else %}<p>עדיין לא נוספו שעות ידניות לאירוע.</p>{% endfor %}
+</section>

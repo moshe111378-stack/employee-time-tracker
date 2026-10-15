@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block c %}
+<style>
+.hours-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.hours-grid label{font-size:14px}.hours-grid input{min-width:0}
+.hours-worker{padding:16px 0;border-top:1px solid #334155}
+.hours-worker h2{font-size:19px;margin:0 0 8px}
+.hours-existing{font-size:14px;line-height:1.7;color:#cbd5e1}
+.hours-confirm{display:flex;gap:10px;align-items:flex-start;line-height:1.6}
+.hours-confirm input{width:22px;min-height:22px;flex-shrink:0}
+.hours-error{padding:14px;border:1px solid #f59e0b;background:#422006;border-radius:12px}
+@media(max-width:420px){.hours-grid{gap:8px}.hours-grid label{font-size:13px}.hours-grid input{padding:10px 7px}}
+</style>
+<h1>הוספת שעות · {{event.name}}</h1>
+<p>בחר תקופה והזן את השעות החסרות לכל עובד. אין צורך בשעות כניסה ויציאה. להזנה עבור יום אחד, בחר אותו תאריך בשני השדות.</p>
+{% if error %}<p class="hours-error" role="alert">{{error}}</p>{% endif %}
+<section class="panel">
+  <form method="get" action="{{url_for('add_event_hours',e=event.id)}}" id="hoursPeriodForm">
+    <div class="pair">
+      <label>מתאריך<input type="date" name="start_date" value="{{start_date}}" max="{{today}}" required></label>
+      <label>עד תאריך, כולל<input type="date" name="end_date" value="{{end_date}}" max="{{today}}" required></label>
+    </div>
+    <button type="submit">הצג עובדים ושעות בתקופה</button>
+  </form>
+<p id="hoursPeriodNotice" class="hours-error" role="alert" hidden>כבר התחלת להזין שעות. שמור אותן תחילה, או חזור לאירוע ופתח מחדש הוספת שעות לתקופה אחרת.</p>
+</section>
+<section class="panel">
+  <h2>שעות להוספה: {{start_date}} עד {{end_date}}</h2>
+  <p>השעות כאן יתווספו למה שכבר רשום. לדוגמה: אם עובד עבד 30 שעות וכבר רשומות 10, יש להוסיף 20.</p>
+  <form method="post" action="{{url_for('add_event_hours',e=event.id)}}" id="manualHoursForm">
+    <input type="hidden" name="start_date" value="{{start_date}}">
+    <input type="hidden" name="end_date" value="{{end_date}}">
+    <input type="hidden" name="csrf" value="{{csrf}}">
+    <input type="hidden" name="form_token" value="{{form_token}}">
+    <input type="hidden" name="revision" value="{{revision}}">
+    {% for w in workers %}{% set key=w.id|string %}{% set totals=existing[w.id] %}
+    <div class="hours-worker">
+      <h2>{{w.name}}</h2>
+      <div class="hours-existing">כבר רשום: נוכחות {{totals.clocked|hours_text}} שעות · הזנות ידניות {{totals.manual|hours_text}} שעות
+        {% if totals.open %}<br>יש משמרת פתוחה. שעותיה עדיין אינן כלולות בסיכום הזה.{% endif %}
+        {% if totals.partial %}<br>קיים דיווח ידני שחופף רק לחלק מהתקופה; מוצג מלוא הדיווח, ללא חלוקה לפי ימים.{% endif %}
+      </div>
+      <input type="hidden" name="worker_ids" value="{{w.id}}">
+      <div class="hours-grid">
+        <label>שעות להוספה<input type="number" min="0" step="1" inputmode="numeric" name="hours_{{w.id}}" value="{{values.get('hours_'+key,'')}}" placeholder="0" aria-label="שעות להוספה עבור {{w.name}}"></label>
+        <label>דקות נוספות<input type="number" min="0" max="59" step="1" inputmode="numeric" name="minutes_{{w.id}}" value="{{values.get('minutes_'+key,'')}}" placeholder="0" aria-label="דקות להוספה עבור {{w.name}}"></label>
+        <label>שכר לשעה, ₪<input type="number" min="0" max="1000000" step="0.01" inputmode="decimal" name="rate_{{w.id}}" value="{{values.get('rate_'+key,w.hourly_rate if w.hourly_rate is not none else '')}}" placeholder="לא הוגדר" aria-label="שכר לשעה עבור {{w.name}}"></label>
+      </div>
+    </div>
+    {% else %}<p>אין עובדים משויכים לאירוע. <a class="back-home" href="/admin/event/{{event.id}}#assignmentPanel">עבור לעריכת שיוכים</a></p>{% endfor %}
+    {% if workers %}
+    <p class="muted">אפשר למלא עובד אחד או כמה יחד. שורה ריקה לא תישמר. השכר נשמר לדיווח הזה בלבד; אם הוא ריק, השעות יישמרו ללא סכום לתשלום.</p>
+    <label>הערה, לא חובה<input name="note" maxlength="500" value="{{values.get('note','')}}" placeholder="למשל: השלמת שעות מתחילת השבוע"></label>
+    <label class="hours-confirm"><input type="checkbox" name="only_missing" value="1" required>בדקתי את השעות שכבר רשומות והזנתי רק שעות חסרות.</label>
+    <button type="submit" id="saveManualHours">הוסף את השעות לעובדים</button>
+    {% endif %}
+  </form>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+const hoursForm=document.getElementById('manualHoursForm'),saveHours=document.getElementById('saveManualHours');
+let hoursDirty=false;
+hoursForm.addEventListener('input',()=>{hoursDirty=true});
+document.getElementById('hoursPeriodForm').addEventListener('submit',e=>{if(hoursDirty){e.preventDefault();document.getElementById('hoursPeriodNotice').hidden=false;}});
+hoursForm.addEventListener('submit',()=>{if(saveHours){saveHours.disabled=true;saveHours.textContent='שומר שעות…'}});
+window.addEventListener('pageshow',()=>{if(saveHours){saveHours.disabled=false;saveHours.textContent='הוסף את השעות לעובדים'}});
+</script>
+
+{% endblock %}
