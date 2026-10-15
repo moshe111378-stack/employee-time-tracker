@@ -1,0 +1,125 @@
+name: Mishmaron security checks
+on:
+  push:
+    branches: [codex/mishmaron-security-20261015, codex/assignment-sync-back-navigation-20261015]
+  pull_request:
+    branches: [codex/assignment-sync-back-navigation-20261015]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: mishmaron-security-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out current monitored branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # A daily re-run scans the current branch, not an old snapshot.
+          ref: ${{ github.head_ref || github.ref_name }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Record scanned revision
+        run: |
+          mkdir -p security-reports
+          git rev-parse HEAD > security-reports/server-commit.txt
+      - name: Install pinned security tools and test dependencies
+        run: |
+          python -m pip install -r requirements.txt pytest==8.4.2 pip-audit==2.10.1 bandit==1.9.4
+          npm install --prefix "$RUNNER_TEMP/security-dom" jsdom@26.1.0 --no-audit --no-fund
+      - name: Attendance and upload regression tests
+        id: regression
+        run: python -m pytest tests -q
+      - name: Browser state and report checks
+        if: always()
+        id: browser
+        env:
+          NODE_PATH: ${{ runner.temp }}/security-dom/node_modules
+          SYNC_FIXTURES: ${{ runner.temp }}/security-fixtures
+        run: |
+          python tests/render_sync_fixtures.py "$SYNC_FIXTURES"
+          node tests/worker_sync.test.cjs
+          node tests/period_reports.test.cjs
+          node --check static/worker-sync.js
+          node --check static/event-sync.js
+      - name: Audit resolved Python dependencies
+        if: always()
+        id: dependencies
+        run: python -m pip_audit -r requirements.txt --progress-spinner off --format json --output security-reports/dependencies.json
+      - name: Static Python security analysis
+        if: always()
+        id: code
+        run: python -m bandit -r app.py assignment_sync.py manual_hours.py event_dates.py period_reports.py upload_security.py -f json -o security-reports/bandit.json
+      - name: Check out Android source without executing it
+        if: always()
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: mishmaron-play-all-clients
+          path: android-source
+          persist-credentials: false
+      - name: Retrieve matching Android CI build for malware scanning
+        if: always()
+        id: android
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git -C android-source rev-parse HEAD > security-reports/android-commit.txt
+          gh run list --repo "$GITHUB_REPOSITORY" --workflow mishmaron-android.yml --branch mishmaron-play-all-clients --status success --limit 1 --json databaseId,headSha,url > security-reports/android-run.json
+          python - <<'PY'
+          import json, pathlib
+          runs=json.loads(pathlib.Path('security-reports/android-run.json').read_text())
+          expected=pathlib.Path('security-reports/android-commit.txt').read_text().strip()
+          if len(runs)!=1 or runs[0]['headSha']!=expected:
+              raise SystemExit('No successful Android build matches the current source; do not claim it was scanned.')
+          pathlib.Path('security-reports/android-run-id.txt').write_text(str(runs[0]['databaseId']))
+          PY
+          gh run download "$(cat security-reports/android-run-id.txt)" --repo "$GITHUB_REPOSITORY" --name mishmaron-unsigned-build-and-reports --dir android-ci-build
+          test -n "$(find android-ci-build -type f -name '*.apk' -print -quit)"
+      - name: Install and update malware signatures
+        if: always()
+        id: signatures
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y clamav clamav-freshclam
+          sudo systemctl stop clamav-freshclam.service
+          sudo freshclam --stdout
+          clamscan --version | tee security-reports/clamav-version.txt
+      - name: Scan source and downloaded Android builds for known malware
+        if: always() && steps.signatures.outcome == 'success'
+        id: malware
+        run: clamscan --recursive --infected --alert-exceeds-max --max-filesize=50M --max-scansize=200M --exclude-dir='/\.git($|/)' --exclude-dir='/security-reports($|/)' --log=security-reports/clamav.txt .
+      - name: Publish accurate scan status
+        if: always()
+        env:
+          REGRESSION: ${{ steps.regression.outcome }}
+          BROWSER: ${{ steps.browser.outcome }}
+          DEPENDENCIES: ${{ steps.dependencies.outcome }}
+          CODE: ${{ steps.code.outcome }}
+          ANDROID: ${{ steps.android.outcome }}
+          SIGNATURES: ${{ steps.signatures.outcome }}
+          MALWARE: ${{ steps.malware.outcome }}
+        run: |
+          python - <<'PY'
+          import os
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as summary:
+              summary.write('## Security scan status\n\n')
+              for key in ('REGRESSION','BROWSER','DEPENDENCIES','CODE','ANDROID','SIGNATURES','MALWARE'):
+                  summary.write(f'- {key}: {os.environ[key]}\n')
+              summary.write('\nScope: repository source and matching unsigned CI Android artifacts. This is not a scan of the Google Play signed release, production uploads, or employees\' phones. No scanner guarantees absence of all malware or vulnerabilities. No production data is downloaded or changed.\n')
+          PY
+      - name: Preserve reports even when a scan fails
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mishmaron-security-reports-${{ github.run_attempt }}
+          path: security-reports/
+          retention-days: 30
