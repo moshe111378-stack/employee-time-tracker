@@ -155,3 +155,44 @@ def test_can_clear_or_assign_fifty_without_deleting_history(site):
     assert client.post('/admin/event/1',data=payload).status_code==302
     assert len([r for r in rows(module,'ew') if r[0]==1])==50
     assert len(rows(module,'att'))==1 and len(rows(module,'att_edits'))==1
+
+
+@pytest.mark.parametrize('name,title', [('proof.jpg','תמונת כניסה'),('exit.jpg','תמונת יציאה')])
+def test_attendance_photo_navigation_and_original_bytes(site,name,title):
+    module,client,data=site
+    image=b'\xff\xd8unchanged-original-photo\xff\xd9'
+    (data/'uploads'/name).write_bytes(image)
+    c=module.con();c.execute("update att set poutphoto='exit.jpg' where id=1");c.commit();c.close()
+    before={t:rows(module,t) for t in ['att','att_edits','workers','ew']}
+    # Current links explicitly request a viewer; old links work on navigation too.
+    for suffix,headers in [('?view=1',{}),('',{'Accept':'text/html,application/xhtml+xml,image/avif,image/webp,*/*;q=0.8'})]:
+        page=client.get('/uploads/'+name+suffix,headers=headers)
+        html=page.get_data(as_text=True)
+        assert page.status_code==200 and page.mimetype=='text/html'
+        assert title in html
+        assert 'href="/admin/event/1#report-1" aria-label="חזרה אחורה"' in html
+        assert f'src="/uploads/{name}?raw=1"' in html
+        assert 'no-store' in page.headers['Cache-Control']
+    # An image load must stay an image, even with an unusual HTML Accept header.
+    for suffix,headers in [('?raw=1',{'Accept':'text/html'}),('',{'Accept':'text/html','Sec-Fetch-Dest':'image'}),('',{})]:
+        raw=client.get('/uploads/'+name+suffix,headers=headers)
+        assert raw.mimetype=='image/jpeg' and raw.data==image
+    report=client.get('/admin/event/1').get_data(as_text=True)
+    assert f'href="/uploads/{name}?view=1"' in report
+    assert f'href="/uploads/{name}?view=1" target="_blank"' not in report
+    assert 'id="report-1"' in report
+    assert before=={t:rows(module,t) for t in before}
+
+
+def test_photo_viewer_keeps_admin_authentication_and_safe_paths(site):
+    module,client,data=site
+    (data/'uploads'/'proof.jpg').write_bytes(b'private-test-photo')
+    anonymous=module.app.test_client()
+    for suffix in ['?view=1','?raw=1','']:
+        response=anonymous.get('/uploads/proof.jpg'+suffix)
+        assert response.status_code==302 and response.location=='/admin/login'
+    with anonymous.session_transaction() as s:s['aid']=999
+    assert anonymous.get('/uploads/proof.jpg?view=1').status_code==403
+    assert anonymous.get('/uploads/proof.jpg?raw=1').status_code==403
+    assert client.get('/uploads/missing.jpg?view=1').status_code==404
+    assert client.get('/uploads/..%2Fhours.db?view=1').status_code==404

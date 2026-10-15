@@ -222,7 +222,25 @@ def delete_report(e,r):
  c.close();flash('הדוח נמחק');return redirect(f'/admin/event/{e}')
 @app.get('/uploads/<n>')
 @adm
-def uploads(n):return send_from_directory(UP,n)
+def uploads(n):
+ c=con()
+ try:
+  if not c.execute('select id from admins where id=?',(session.get('aid'),)).fetchone():abort(403)
+  row=c.execute('select id,event_id,pinphoto from att where pinphoto=? or poutphoto=? order by id desc limit 1',(n,n)).fetchone()
+ finally:c.close()
+ # Keep image bytes available to embedded images and downloads. Navigating to
+ # a photo (including older report links) opens a page with a way back.
+ response=send_from_directory(UP,n)
+ view=request.args.get('view')=='1' or (request.headers.get('Sec-Fetch-Dest')!='image' and request.accept_mimetypes['text/html']>0)
+ if view and request.args.get('raw')!='1':
+  response.close()
+  title=('תמונת כניסה' if row['pinphoto']==n else 'תמונת יציאה') if row else 'תמונת דיווח'
+  back=f'/admin/event/{row["event_id"]}#report-{row["id"]}' if row else '/admin/events'
+  response=make_response(render_template('attendance_photo.html',photo_title=title,photo_url=url_for('uploads',n=n,raw=1),back_url=back))
+ response.headers['Cache-Control']='no-store, no-cache, must-revalidate, max-age=0'
+ response.headers['Pragma']='no-cache'
+ response.vary.update(('Accept','Sec-Fetch-Dest'))
+ return response
 @app.get('/admin/reports')
 @adm
 def admin_reports():
