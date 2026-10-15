@@ -39,12 +39,13 @@ def adm(f):
  def w(*a,**k):return f(*a,**k) if session.get('aid') else redirect('/admin/login')
  return w
 def photo(x):
- if not x or not x.filename:return None
- n=uuid.uuid4().hex+'.jpg';x.save(os.path.join(UP,n));return n
+ return save_attendance_photo(x, UP)
 def dur(a,b):
  if not b:return 'פעיל'
  d=datetime.fromisoformat(b)-datetime.fromisoformat(a);m=int(d.total_seconds()/60);return f'{m//60}:{m%60:02d}'
 app.jinja_env.globals['dur']=dur
+from upload_security import save_attendance_photo, register_upload_security
+register_upload_security(app)
 from assignment_sync import register_sync, assignment_form_context, save_assignments
 register_sync(app, con, ISRAEL_TZ)
 from manual_hours import register_manual_hours, manual_rows, hours_text, money_text
