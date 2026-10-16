@@ -36,6 +36,7 @@ import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
     static final String REGISTRY = "https://raw.githubusercontent.com/moshe111378-stack/employee-time-tracker/mishmaron-play-all-clients/config/organizations.json";
+    static final String PLATFORM = "https://mishmaron-platform-production.up.railway.app/";
     static final String PRIVACY = "https://mishmaron-privacy-production.up.railway.app/privacy";
     static final String SUPPORT = "moshe111378@gmail.com";
     static final int NAVY = Color.rgb(7,21,43), GOLD = Color.rgb(217,181,90), LIGHT = Color.rgb(233,239,248);
@@ -56,6 +57,7 @@ public class MainActivity extends Activity {
     String pendingExportCookie;
     volatile int generation;
     boolean switching;
+    String initialPath;
 
     static final class Organization {
         final String code,name,url;
@@ -74,7 +76,10 @@ public class MainActivity extends Activity {
         String cache=prefs.getString("registry",null);
         if(cache!=null)try{parseRegistry(cache);}catch(Exception ignored){}
         Organization remembered=organizations.get(prefs.getString("organization",""));
-        if(remembered!=null)openOrganization(remembered);else showChooser();
+        Uri launch=getIntent().getData();
+        String orgPath=launch==null?null:launch.getPath();
+        if(launch!=null&&"mishmaron".equals(launch.getScheme())&&"org".equals(launch.getHost())&&orgPath!=null&&orgPath.matches("/[a-f0-9-]{36}"))openPlatform("o"+orgPath+"/");
+        else if(remembered!=null)openOrganization(remembered);else showChooser();
         updateRegistry();
     }
     int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
@@ -98,6 +103,7 @@ public class MainActivity extends Activity {
             if(!code.matches("[A-Za-z0-9_-]{1,32}")||name.trim().isEmpty()||name.length()>100||!UrlPolicy.organizationRoot(url)||next.containsKey(code))throw new JSONException("Invalid organization");
             next.put(code,new Organization(code,name,url));
         }
+        next.put("platform",new Organization("platform","משמרון",PLATFORM));
         organizations.clear();organizations.putAll(next);
     }
     void updateRegistry(){io.execute(()->{
@@ -107,20 +113,9 @@ public class MainActivity extends Activity {
             ui.post(()->{if(isFinishing()||isDestroyed())return;try{parseRegistry(json);prefs.edit().putString("registry",json).apply();}catch(Exception ignored){}});
         }catch(Exception ignored){ /* Bundled or last-known registry remains usable offline. */ }
     });}
-    void showChooser(){
-        generation++;selected=null;newRoot();
-        ScrollView scroll=new ScrollView(this);root.addView(scroll,new LinearLayout.LayoutParams(-1,-1));
-        LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);page.setPadding(dp(24),dp(30),dp(24),dp(24));scroll.addView(page);
-        ImageView logo=new ImageView(this);logo.setImageResource(R.drawable.brand_logo);logo.setContentDescription("משמרון");logo.setAdjustViewBounds(true);page.addView(logo,new LinearLayout.LayoutParams(-1,dp(150)));
-        TextView brand=text("משמרון",40,GOLD);brand.setTypeface(null,Typeface.BOLD);page.addView(brand);
-        page.addView(text("העבודה שלך. במקום אחד.",21,LIGHT));
-        page.addView(text("כניסה לאזור האישי",21,LIGHT));
-        page.addView(text("בהפעלה הראשונה הזינו את קוד הארגון שקיבלתם מהמנהל. לאחר ההתחברות האפליקציה תיפתח ישירות באזור שלכם.",16,LIGHT));
-        EditText code=new EditText(this);code.setSingleLine(true);code.setHint("קוד הארגון");code.setTextColor(LIGHT);code.setHintTextColor(Color.LTGRAY);code.setContentDescription("קוד ארגון");page.addView(code);
-        Button join=button("כניסה עם קוד");page.addView(join);join.setOnClickListener(v->{Organization org=organizations.get(code.getText().toString().trim());if(org==null)new AlertDialog.Builder(this).setMessage("הקוד לא נמצא. בדקו את הקוד שקיבלתם מהמנהל וחיבור לאינטרנט, ואז פתחו מחדש את המסך.").setPositiveButton("הבנתי",null).show();else openOrganization(org);});
-        Button privacy=button("פרטיות ומחיקת מידע");page.addView(privacy);privacy.setOnClickListener(v->privacy());
-        TextView note=text("כל ארגון מנהל את העובדים והנתונים שלו. בחירת ארגון אינה מעניקה הרשאות ניהול.",13,Color.LTGRAY);page.addView(note);
-    }
+    void showChooser(){openPlatform("");}
+    void openPlatform(String path){initialPath=path;openOrganization(new Organization("platform","משמרון",PLATFORM));}
+    String homePath(){return "platform".equals(selected.code)?"":"?app_home=1";}
     void openOrganization(Organization org){
         if(switching)return;switching=true;generation++;
         // Preserve the existing login only for the exact same organization and origin.
@@ -135,6 +130,7 @@ public class MainActivity extends Activity {
         LinearLayout bar=new LinearLayout(this);bar.setGravity(Gravity.CENTER_VERTICAL);bar.setPadding(dp(12),dp(4),dp(12),dp(4));root.addView(bar);
         ImageView brandIcon=new ImageView(this);brandIcon.setImageResource(R.drawable.brand_logo);brandIcon.setContentDescription("משמרון");bar.addView(brandIcon,new LinearLayout.LayoutParams(dp(40),dp(40)));
         status=text(selected.name,17,GOLD);status.setTypeface(null,Typeface.BOLD);bar.addView(status,new LinearLayout.LayoutParams(0,-2,1));
+        Button home=new Button(this);home.setText("מסך ראשי");bar.addView(home);home.setOnClickListener(v->{prefs.edit().putString("startPath","/").apply();web.loadUrl(selected.url+homePath());});
         Button menu=new Button(this);menu.setText("תפריט");bar.addView(menu);menu.setOnClickListener(v->new AlertDialog.Builder(this).setItems(new String[]{"רענון","החלפת ארגון","פרטיות ומחיקת מידע","פנייה לתמיכה"},(d,i)->{if(i==0)web.reload();if(i==1)confirmSwitch();if(i==2)privacy();if(i==3)contact();}).show());
         progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(100);root.addView(progress,new LinearLayout.LayoutParams(-1,dp(3)));
         web=new WebView(this);root.addView(web,new LinearLayout.LayoutParams(-1,0,1));
@@ -142,7 +138,23 @@ public class MainActivity extends Activity {
         s.setAllowFileAccess(false);s.setAllowContentAccess(true);s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setSupportMultipleWindows(false);s.setJavaScriptCanOpenWindowsAutomatically(false);s.setSafeBrowsingEnabled(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web,false);
         web.setWebViewClient(new WebViewClient(){
-            @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest r){if(allowed(r.getUrl().toString()))return false;if(r.isForMainFrame()&&r.hasGesture())external(r.getUrl());return true;}
+            @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest r){
+                String url=r.getUrl().toString();
+                if(allowed(url))return false;
+                if(r.isForMainFrame()&&r.hasGesture()&&selected!=null){
+                    if(!"platform".equals(selected.code)&&UrlPolicy.sameOrigin(PLATFORM,url)){
+                        String path=r.getUrl().getPath();
+                        if("/signup".equals(path)||"/legacy".equals(path)){ui.post(()->openPlatform(path.substring(1)));return true;}
+                    }
+                    if("platform".equals(selected.code)){
+                        for(Organization org:organizations.values()){
+                            if(!"platform".equals(org.code)&&UrlPolicy.sameOrigin(org.url,url)){ui.post(()->{initialPath=null;openOrganization(org);});return true;}
+                        }
+                    }
+                    external(r.getUrl());
+                }
+                return true;
+            }
             @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest r){String u=r.getUrl().toString();if(allowed(u)&&"/__mishmaron_native_brand_v2.png".equals(r.getUrl().getPath()))return new WebResourceResponse("image/png",null,getResources().openRawResource(R.raw.brand_logo));if(allowed(u))return null;return new WebResourceResponse("text/plain","UTF-8",403,"Blocked",Collections.emptyMap(),new ByteArrayInputStream(new byte[0]));}
             @Override public void onReceivedSslError(WebView view,SslErrorHandler handler,SslError error){handler.cancel();ui.post(()->connectionError("לא ניתן לאמת חיבור מאובטח לארגון."));}
             @Override public void onReceivedError(WebView view,WebResourceRequest r,WebResourceError e){if(r.isForMainFrame())connectionError("לא ניתן להתחבר. בדקו את החיבור לאינטרנט ונסו לרענן.");}
@@ -166,8 +178,8 @@ public class MainActivity extends Activity {
             }
         });
         web.setDownloadListener((url,agent,disposition,type,length)->export(url));
-        String start=prefs.getString("startPath","/");
-        web.loadUrl(selected.url+("/admin".equals(start)?"admin":""));
+        String start=initialPath;initialPath=null;
+        web.loadUrl(selected.url+(start==null?homePath():start));
     }
     void applyAppPresentation(WebView view){
         // Only runs on the selected organization. Does not grant or bypass server authentication.
