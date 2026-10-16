@@ -10,7 +10,9 @@ import android.provider.MediaStore;
 import android.webkit.ValueCallback;
 import android.view.View;
 import android.widget.Button;
+import androidx.core.content.FileProvider;
 import java.io.OutputStream;
+import java.util.Map;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -19,6 +21,7 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowActivity;
 import org.robolectric.shadows.ShadowAlertDialog;
+import org.robolectric.util.ReflectionHelpers;
 import static org.robolectric.Shadows.shadowOf;
 import static org.junit.Assert.*;
 
@@ -33,6 +36,10 @@ public class AttendanceCameraTest {
         public void onReceiveValue(Uri[] value) { calls++; this.value = value; }
     }
     @Before public void setup() {
+        // Robolectric creates a new cache directory for each test in the same JVM.
+        // AndroidX otherwise retains a FileProvider root from the previous test.
+        Map<?, ?> roots = ReflectionHelpers.getStaticField(FileProvider.class, "sCache");
+        roots.clear();
         activity = Robolectric.buildActivity(Activity.class).setup().get();
         camera = new AttendanceCamera(activity);
     }
