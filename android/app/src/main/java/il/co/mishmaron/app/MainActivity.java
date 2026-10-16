@@ -39,7 +39,7 @@ public class MainActivity extends Activity {
     static final String PRIVACY = "https://mishmaron-privacy-production.up.railway.app/privacy";
     static final String SUPPORT = "moshe111378@gmail.com";
     static final int NAVY = Color.rgb(7,21,43), GOLD = Color.rgb(217,181,90), LIGHT = Color.rgb(233,239,248);
-    static final int FILE_REQUEST = 21, LOCATION_REQUEST = 22, EXPORT_REQUEST = 23;
+    static final int LOCATION_REQUEST = 22, EXPORT_REQUEST = 23;
     final ExecutorService io = Executors.newSingleThreadExecutor();
     final Handler ui = new Handler(Looper.getMainLooper());
     final LinkedHashMap<String, Organization> organizations = new LinkedHashMap<>();
@@ -49,8 +49,7 @@ public class MainActivity extends Activity {
     volatile Organization selected;
     TextView status;
     ProgressBar progress;
-    ValueCallback<Uri[]> fileCallback;
-    Uri cameraUri;
+    AttendanceCamera attendanceCamera;
     String pendingGeoOrigin;
     GeolocationPermissions.Callback pendingGeo;
     String pendingExport;
@@ -65,6 +64,7 @@ public class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
+        attendanceCamera=new AttendanceCamera(this);
         prefs=getSharedPreferences("mishmaron",MODE_PRIVATE);
         File[] oldPhotos=new File(getCacheDir(),"camera").listFiles();
         if(oldPhotos!=null)for(File photo:oldPhotos)if(photo.isFile())photo.delete();
@@ -161,8 +161,8 @@ public class MainActivity extends Activity {
             @Override public void onGeolocationPermissionsHidePrompt(){if(pendingGeo!=null){pendingGeo.invoke(pendingGeoOrigin,false,false);pendingGeo=null;}}
             @Override public void onPermissionRequest(PermissionRequest request){request.deny();}
             @Override public boolean onShowFileChooser(WebView v,ValueCallback<Uri[]> cb,FileChooserParams p){
-                if(!allowed(v.getUrl()))return false;if(fileCallback!=null)fileCallback.onReceiveValue(null);fileCallback=cb;
-                new AlertDialog.Builder(MainActivity.this).setTitle("תמונה לדיווח נוכחות").setMessage("התמונה שתבחרו או תצלמו תישלח לארגון ותישמר עם דיווח הנוכחות. היא תהיה זמינה למנהלים המורשים.").setPositiveButton("צילום תמונה",(d,i)->takePhoto()).setNeutralButton("בחירת תמונה",(d,i)->pickPhoto()).setNegativeButton("ביטול",(d,i)->finishFile(null)).setOnCancelListener(d->finishFile(null)).show();return true;
+                if(!allowed(v.getUrl())){cb.onReceiveValue(null);return true;}
+                attendanceCamera.choose(cb);return true;
             }
         });
         web.setDownloadListener((url,agent,disposition,type,length)->export(url));
@@ -188,18 +188,15 @@ public class MainActivity extends Activity {
     }
     void finishGeo(boolean allow){if(pendingGeo!=null){pendingGeo.invoke(pendingGeoOrigin,allow&&allowed(pendingGeoOrigin),false);pendingGeo=null;pendingGeoOrigin=null;}}
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants){super.onRequestPermissionsResult(request,permissions,grants);if(request==LOCATION_REQUEST)finishGeo(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED||checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED);}
-    void takePhoto(){try{File dir=new File(getCacheDir(),"camera");if(!dir.exists()&&!dir.mkdirs())throw new IOException();File photo=File.createTempFile("attendance-",".jpg",dir);cameraUri=FileProvider.getUriForFile(this,getPackageName()+".files",photo);Intent camera=new Intent(MediaStore.ACTION_IMAGE_CAPTURE);camera.putExtra(MediaStore.EXTRA_OUTPUT,cameraUri);camera.setClipData(ClipData.newRawUri("photo",cameraUri));camera.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivityForResult(camera,FILE_REQUEST);}catch(Exception e){cameraUri=null;finishFile(null);Toast.makeText(this,"לא ניתן לפתוח מצלמה. נסו לבחור תמונה.",Toast.LENGTH_LONG).show();}}
-    void pickPhoto(){cameraUri=null;Intent pick=new Intent(Intent.ACTION_OPEN_DOCUMENT);pick.setType("image/*");pick.addCategory(Intent.CATEGORY_OPENABLE);try{startActivityForResult(pick,FILE_REQUEST);}catch(Exception e){finishFile(null);}}
-    void finishFile(Uri[] uris){if(fileCallback!=null){fileCallback.onReceiveValue(uris);fileCallback=null;}}
     void export(String url){if(!allowed(url))return;pendingExport=url;pendingExportCookie=CookieManager.getInstance().getCookie(url);Intent save=new Intent(Intent.ACTION_CREATE_DOCUMENT);save.setType("application/vnd.ms-excel");save.addCategory(Intent.CATEGORY_OPENABLE);save.putExtra(Intent.EXTRA_TITLE,"mishmaron-report.xls");try{startActivityForResult(save,EXPORT_REQUEST);}catch(Exception e){pendingExport=null;pendingExportCookie=null;Toast.makeText(this,"לא ניתן לפתוח שמירת קובץ",Toast.LENGTH_SHORT).show();}}
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);
-        if(request==FILE_REQUEST){Uri u=null;if(result==RESULT_OK){u=cameraUri!=null?cameraUri:(data==null?null:data.getData());if(u!=null&&!"content".equals(u.getScheme()))u=null;}finishFile(u==null?null:new Uri[]{u});cameraUri=null;}
+        if(attendanceCamera!=null&&attendanceCamera.handleResult(request,result))return;
         if(request==EXPORT_REQUEST){String url=pendingExport,cookie=pendingExportCookie;pendingExport=null;pendingExportCookie=null;if(result==RESULT_OK&&data!=null&&data.getData()!=null&&allowed(url))saveExport(url,cookie,data.getData(),generation);}
     }
     void saveExport(String url,String cookie,Uri dest,int epoch){io.execute(()->{try{if(epoch!=generation)return;HttpURLConnection c=(HttpURLConnection)new URL(url).openConnection();c.setConnectTimeout(15000);c.setReadTimeout(15000);c.setInstanceFollowRedirects(false);if(cookie!=null)c.setRequestProperty("Cookie",cookie);try{if(c.getResponseCode()!=200||c.getContentType()==null||!c.getContentType().toLowerCase(Locale.ROOT).contains("application/vnd.ms-excel"))throw new IOException();try(InputStream input=c.getInputStream();OutputStream output=getContentResolver().openOutputStream(dest)){byte[] buffer=new byte[8192];int count,total=0;while((count=input.read(buffer))!=-1){if(epoch!=generation||((total+=count)>20*1024*1024))throw new IOException();output.write(buffer,0,count);}}}finally{c.disconnect();}ui.post(()->Toast.makeText(this,"הדוח נשמר",Toast.LENGTH_LONG).show());}catch(Exception e){ui.post(()->Toast.makeText(this,"הדוח לא נשמר. נסו שוב לאחר התחברות.",Toast.LENGTH_LONG).show());}});}
     void privacy(){new AlertDialog.Builder(this).setTitle("פרטיות ומחיקת מידע").setMessage("משמרון מנהלת נוכחות ומשמרות עבור הארגון שבחרתם. שמות, טלפונים, מזהי משתמש, דיווחי שעות ושכר, תמונות ומיקום בעת דיווח נשמרים לצורך תפעול המערכת ואימות הנוכחות ונגישים למנהלים המורשים. התקשורת באפליקציה מוצפנת. אין פרסומות או כלי אנליטיקה באפליקציית האנדרואיד.\n\nלמחיקה או תיקון פנו למנהל הארגון או ל־"+SUPPORT+" עם שם הארגון ושם המשתמש. אין לשלוח סיסמה. מידע שחובה לשמור עשוי להישמר לפי דרישות הארגון והדין. מחיקת האפליקציה אינה מוחקת דיווחים בשרת.").setPositiveButton("פנייה בנוגע למידע",(d,i)->contact()).setNeutralButton("מדיניות מלאה",(d,i)->external(Uri.parse(PRIVACY))).setNegativeButton("סגירה",null).show();}
     void contact(){Intent mail=new Intent(Intent.ACTION_SENDTO,Uri.parse("mailto:"+SUPPORT));mail.putExtra(Intent.EXTRA_SUBJECT,"משמרון — פנייה לתמיכה / בקשת מחיקת מידע");try{startActivity(mail);}catch(Exception e){new AlertDialog.Builder(this).setMessage("כתובת התמיכה: "+SUPPORT).setPositiveButton("סגירה",null).show();}}
-    void cancelPending(){finishGeo(false);finishFile(null);pendingExport=null;pendingExportCookie=null;cameraUri=null;}
+    void cancelPending(){finishGeo(false);if(attendanceCamera!=null)attendanceCamera.cancel();pendingExport=null;pendingExportCookie=null;}
     @Override public void onBackPressed(){if(web!=null&&web.canGoBack())web.goBack();else super.onBackPressed();}
     @Override protected void onDestroy(){generation++;cancelPending();if(web!=null){web.destroy();web=null;}io.shutdownNow();super.onDestroy();}
     static String readText(InputStream input,int limit)throws IOException{try(InputStream in=input;ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] b=new byte[4096];int n;while((n=in.read(b))!=-1){if(out.size()+n>limit)throw new IOException("Too large");out.write(b,0,n);}return out.toString(StandardCharsets.UTF_8.name());}}
