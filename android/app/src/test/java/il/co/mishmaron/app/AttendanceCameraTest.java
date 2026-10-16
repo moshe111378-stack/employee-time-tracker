@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.ActivityNotFoundException;
 import android.net.Uri;
+import android.os.Looper;
 import android.provider.MediaStore;
 import android.webkit.ValueCallback;
 import android.view.View;
@@ -41,6 +42,7 @@ public class AttendanceCameraTest {
         Button gallery = dialog.getButton(AlertDialog.BUTTON_NEUTRAL);
         assertTrue(gallery == null || gallery.getVisibility() != View.VISIBLE);
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+        shadowOf(Looper.getMainLooper()).idle();
         ShadowActivity.IntentForResult launched = shadowOf(activity).getNextStartedActivityForResult();
         assertNotNull(launched);
         assertEquals(MediaStore.ACTION_IMAGE_CAPTURE, launched.intent.getAction());
@@ -111,6 +113,7 @@ public class AttendanceCameraTest {
         Result result = new Result();
         camera.choose(result);
         ShadowAlertDialog.getLatestAlertDialog().cancel();
+        shadowOf(Looper.getMainLooper()).idle();
         assertEquals(1, result.calls);
         assertNull(result.value);
         assertNull(shadowOf(activity).getNextStartedActivityForResult());
@@ -126,8 +129,10 @@ public class AttendanceCameraTest {
         Result result = new Result();
         camera.choose(result);
         ShadowAlertDialog.getLatestAlertDialog().getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+        shadowOf(Looper.getMainLooper()).idle();
         assertEquals(1, result.calls);
         assertNull(result.value);
         assertNull(shadowOf(activity).getNextStartedActivityForResult());
     }
 }
+
