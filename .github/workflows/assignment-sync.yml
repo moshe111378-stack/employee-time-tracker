@@ -4,7 +4,7 @@ on:
     branches: [codex/assignment-sync-back-navigation-20261015]
   pull_request:
     branches: [main]
-    paths: ['app.py', 'assignment_sync.py', 'manual_hours.py', 'period_reports.py', 'event_dates.py', 'templates/**', 'static/*sync.js', 'tests/**', '.github/workflows/assignment-sync.yml']
+    paths: ['app.py', 'assignment_sync.py', 'manual_hours.py', 'period_reports.py', 'event_dates.py', 'templates/**', 'static/*sync.js', 'static/attendance-time.*', 'tests/**', '.github/workflows/assignment-sync.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -33,5 +33,6 @@ jobs:
           python tests/render_sync_fixtures.py "$SYNC_FIXTURES"
           node tests/worker_sync.test.cjs
           node tests/period_reports.test.cjs
+          node tests/attendance_time.test.cjs
           node --check static/worker-sync.js
           node --check static/event-sync.js

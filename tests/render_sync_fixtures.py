@@ -30,6 +30,7 @@ with tempfile.TemporaryDirectory() as data:
         ('fixture-two',1,2,'Worker Two','2026-09-01','2026-09-02',120,None,'',1,'Admin','2026-10-15T12:00:00'),
         ('fixture-three',1,1,'Worker One','2026-09-30','2026-10-02',120,4000,'',1,'Admin','2026-10-15T12:00:00')])
     c.commit()
+    (destination/'attendance-edit.html').write_bytes(client.get('/admin/event/1').data)
     from period_reports import report_groups
     with app.app.test_request_context('/admin/reports'):
         html=app.render_template('admin_reports.html',reports=report_groups(c),today='2026-10-15')
