@@ -1,4 +1,4 @@
-import os,sqlite3,uuid,time,random,secrets
+import os,sqlite3,uuid,time,random,secrets,re
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from functools import wraps
@@ -14,6 +14,20 @@ def parse_manager_time(value):
  local=dt.replace(tzinfo=ISRAEL_TZ)
  if local.astimezone(timezone.utc).astimezone(ISRAEL_TZ).replace(tzinfo=None)!=dt:raise ValueError('invalid local time')
  return dt.isoformat(timespec='seconds')
+def manager_form_time(form, prefix, required=False):
+ # Keep accepting older pages while keyboard-friendly forms use separate fields.
+ if prefix+'_date' not in form and prefix+'_time' not in form:
+  value=form.get(prefix,'').strip()
+  return parse_manager_time(value) if value or required else None
+ day=form.get(prefix+'_date','').strip()
+ clock=form.get(prefix+'_time','').strip()
+ if not day and not clock and not required:return None
+ if re.fullmatch(r'[0-9]{8}',day):day=day[:2]+'/'+day[2:4]+'/'+day[4:]
+ if re.fullmatch(r'[0-9]{3,4}',clock):clock=clock[:-2]+':'+clock[-2:]
+ if not re.fullmatch(r'[0-9]{2}/[0-9]{2}/[0-9]{4}',day) or not re.fullmatch(r'[0-9]{1,2}:[0-9]{2}',clock):
+  raise ValueError('invalid date or time')
+ date_value=datetime.strptime(day,'%d/%m/%Y').strftime('%Y-%m-%d')
+ return parse_manager_time(date_value+'T'+clock.zfill(5))
 def con(): c=sqlite3.connect(DB);c.row_factory=sqlite3.Row;return c
 def init():
  c=con();c.executescript('CREATE TABLE IF NOT EXISTS admins(id INTEGER PRIMARY KEY,name TEXT,user TEXT UNIQUE,pw TEXT);CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY,name TEXT,date TEXT,active INTEGER DEFAULT 1);CREATE TABLE IF NOT EXISTS workers(id INTEGER PRIMARY KEY,name TEXT,phone TEXT);CREATE TABLE IF NOT EXISTS ew(event_id INTEGER,worker_id INTEGER,PRIMARY KEY(event_id,worker_id));CREATE TABLE IF NOT EXISTS att(id INTEGER PRIMARY KEY,event_id INTEGER,worker_id INTEGER,cin TEXT,cout TEXT,pinphoto TEXT,poutphoto TEXT,inlat TEXT,inlon TEXT,inacc TEXT,outlat TEXT,outlon TEXT,outacc TEXT);CREATE TABLE IF NOT EXISTS att_edits(id INTEGER PRIMARY KEY AUTOINCREMENT,attendance_id INTEGER NOT NULL,admin_id INTEGER,admin_name TEXT NOT NULL,old_cin TEXT,old_cout TEXT,new_cin TEXT NOT NULL,new_cout TEXT,edited_at TEXT NOT NULL);CREATE INDEX IF NOT EXISTS idx_att_edits_attendance ON att_edits(attendance_id,id);')
@@ -205,11 +219,9 @@ def ea(e):
 @app.post('/admin/event/<int:e>/report/<int:r>/edit')
 @adm
 def edit_attendance(e,r):
- cin_raw=request.form.get('cin','').strip()
- cout_raw=request.form.get('cout','').strip()
  try:
-  cin=parse_manager_time(cin_raw)
-  cout=parse_manager_time(cout_raw) if cout_raw else None
+  cin=manager_form_time(request.form,'cin',required=True)
+  cout=manager_form_time(request.form,'cout')
  except ValueError:
   flash('יש להזין תאריך ושעה תקינים')
   return redirect(f'/admin/event/{e}')

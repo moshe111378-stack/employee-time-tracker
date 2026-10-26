@@ -1,0 +1,17 @@
+{% for field, title, value in [('cin', 'כניסה', r.cin), ('cout', 'יציאה', r.cout)] %}
+<fieldset class="attendance-time-fields">
+  <legend>שעת {{title}}</legend>
+  <label for="{{field}}-date-{{r.id}}">תאריך</label>
+  <input id="{{field}}-date-{{r.id}}" type="text" inputmode="numeric" name="{{field}}_date"
+         value="{{value[8:10] ~ '/' ~ value[5:7] ~ '/' ~ value[:4] if value else ''}}"
+         placeholder="יום/חודש/שנה" dir="ltr" autocomplete="off" maxlength="10"
+         pattern="(?:[0-9]{2}/[0-9]{2}/[0-9]{4}|[0-9]{8})" data-attendance-date
+         aria-describedby="time-help-{{r.id}}" {% if field == 'cin' %}required{% endif %}>
+  <label for="{{field}}-time-{{r.id}}">שעה</label>
+  <input id="{{field}}-time-{{r.id}}" type="text" inputmode="numeric" name="{{field}}_time"
+         value="{{value[11:16] if value else ''}}" placeholder="לדוגמה 19:02" dir="ltr"
+         autocomplete="off" maxlength="5" pattern="(?:[0-9]{1,2}:[0-9]{2}|[0-9]{3,4})"
+         data-attendance-time aria-describedby="time-help-{{r.id}}" {% if field == 'cin' %}required{% endif %}>
+</fieldset>
+{% endfor %}
+<small class="attendance-time-help" id="time-help-{{r.id}}">אפשר להקליד ספרות בלבד: תאריך 22102026 ושעה 1902. להשארת משמרת פתוחה, השאר את תאריך ושעת היציאה ריקים.</small>

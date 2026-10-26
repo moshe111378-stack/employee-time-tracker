@@ -62,6 +62,58 @@ def test_current_assignments_checked(site):
     assert not re.search(r'name="worker_ids" value="4" checked',html)
 
 
+@pytest.mark.parametrize('payload', [
+    {'cin_date':'22/10/2026','cin_time':'19:02','cout_date':'23/10/2026','cout_time':'04:20'},
+    {'cin_date':'22102026','cin_time':'1902','cout_date':'23102026','cout_time':'420'},
+    {'cin':'2026-10-22T19:02','cout':'2026-10-23T04:20'},
+])
+def test_keyboard_hours_save_overnight_shift_and_audit(site,payload):
+    module,client,_=site
+    response=client.post('/admin/event/1/report/1/edit',data=payload,follow_redirects=True)
+    assert response.status_code==200
+    c=module.con()
+    record=dict(c.execute('select * from att where id=1').fetchone())
+    audit=dict(c.execute('select * from att_edits order by id desc limit 1').fetchone())
+    c.close()
+    assert record['cin']=='2026-10-22T19:02:00' and record['cout']=='2026-10-23T04:20:00'
+    assert record['pinphoto']=='proof.jpg' and record['inlat']=='1'
+    assert audit['old_cin']=='2026-10-15T08:00:32' and audit['new_cout']==record['cout']
+    html=response.get_data(as_text=True)
+    assert '9:18' in html and '372.00' in html
+
+
+@pytest.mark.parametrize('changes', [
+    {'cin_date':'31/02/2026'}, {'cin_time':'24:00'}, {'cin_time':'19:60'},
+    {'cin_date':''}, {'cin_time':''}, {'cout_date':''}, {'cout_time':''},
+    {'cout_date':'22/10/2026','cout_time':'18:00'},
+    {'cin_date':'27/03/2026','cin_time':'02:30'},
+])
+def test_invalid_keyboard_times_never_change_records_or_audit(site,changes):
+    module,client,_=site
+    payload={'cin_date':'22/10/2026','cin_time':'19:02','cout_date':'23/10/2026','cout_time':'04:20'}
+    payload.update(changes)
+    before={table:rows(module,table) for table in ('att','att_edits')}
+    client.post('/admin/event/1/report/1/edit',data=payload)
+    assert before=={table:rows(module,table) for table in before}
+
+
+def test_keyboard_edit_can_leave_shift_open_and_requires_admin(site):
+    module,client,_=site
+    payload={'cin_date':'22/10/2026','cin_time':'19:02','cout_date':'','cout_time':''}
+    anonymous=module.app.test_client()
+    before=rows(module,'att')
+    response=anonymous.post('/admin/event/1/report/1/edit',data=payload)
+    assert response.status_code==302 and response.location.endswith('/admin/login')
+    assert before==rows(module,'att')
+    client.post('/admin/event/1/report/1/edit',data=payload)
+    c=module.con()
+    assert c.execute('select cout from att where id=1').fetchone()['cout'] is None
+    c.close()
+    html=client.get('/admin/event/1').get_data(as_text=True)
+    assert 'value="22/10/2026"' in html and 'value="19:02"' in html
+    assert 'type="datetime-local"' not in html
+
+
 @pytest.mark.parametrize('path,target', [('/admin','/'),('/admin/events','/admin'),('/admin/workers','/admin'),('/admin/admins','/admin'),('/admin/reports','/admin'),('/admin/event/1','/admin/events'),('/event/1','/')])
 def test_back_arrows(site,path,target):
     response=site[1].get(path)
