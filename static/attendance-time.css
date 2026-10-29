@@ -1,0 +1,30 @@
+.manual-edit-form{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.attendance-time-fields{border:0;padding:0;margin:0;min-width:0}
+.manual-edit-form label{display:block}
+.manual-edit-form input{width:100%;min-width:0}
+.attendance-time-help,.attendance-save-status,.manual-edit-form>button{grid-column:1/-1}
+.attendance-field-error,.attendance-save-status{color:#fca5a5;line-height:1.5}
+.attendance-field-error{display:block;min-height:1.5em}
+.attendance-save-status:empty{display:none}
+.manual-edit-form input[aria-invalid="true"]{border-color:#fca5a5}
+.manual-edit-form[aria-busy="true"]{opacity:.8}
+@media(max-width:600px){.manual-edit-form{grid-template-columns:1fr}}
+.attendance-date-control{display:flex;align-items:center;gap:8px;min-width:0}
+.attendance-date-control input{flex:1;min-width:0}
+.manual-edit-form .attendance-calendar-open{flex:0 0 48px;width:48px;min-height:48px;padding:10px;grid-column:auto;font-size:23px}
+.attendance-calendar-open svg{display:block;width:24px;height:24px;margin:auto;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.attendance-calendar[hidden]{display:none}
+.attendance-calendar{position:fixed;inset:0;z-index:500;display:grid;place-items:center;padding:16px;background:rgba(1,6,17,.78);direction:rtl}
+.attendance-calendar-card{width:min(360px,100%);max-height:90vh;overflow:auto;background:#101f36;color:#f8fafc;border:1px solid #466388;border-radius:20px;padding:16px;box-shadow:0 20px 60px #0008}
+.attendance-calendar-card h3{margin:0 0 12px;text-align:center}
+.attendance-calendar-nav{display:grid;grid-template-columns:44px 1fr 44px;gap:6px;align-items:center;text-align:center;margin-bottom:12px}
+.attendance-calendar button{margin:0;padding:8px;min-height:40px;border-radius:9px;font-size:16px}
+.attendance-calendar-nav button{background:#233c61}
+.attendance-calendar-weekdays,.attendance-calendar-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;text-align:center}
+.attendance-calendar-weekdays{margin-bottom:8px;color:#bfdbfe;font-size:14px}
+.attendance-calendar-days button{background:#1b304e;border:1px solid transparent;color:#fff}
+.attendance-calendar-days button[aria-current="date"]{border-color:#fbbf24}
+.attendance-calendar-days button[aria-pressed="true"]{background:#2563eb;border-color:#93c5fd}
+.attendance-calendar button:focus-visible{outline:3px solid #fbbf24;outline-offset:1px}
+.attendance-calendar-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.attendance-calendar-actions [data-calendar-close]{background:#334155}

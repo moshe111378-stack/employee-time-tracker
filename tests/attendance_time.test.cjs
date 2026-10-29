@@ -1,0 +1,43 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const {JSDOM} = require('jsdom');
+const dom = new JSDOM(fs.readFileSync(path.join(process.env.SYNC_FIXTURES, 'attendance-edit.html'), 'utf8'), {
+  url: 'https://test.invalid/admin/event/1', runScripts: 'outside-only'
+});
+const w = dom.window, d = w.document;
+w.eval(fs.readFileSync(path.join(__dirname, '../static/attendance-time.js'), 'utf8'));
+const form = d.querySelector('.manual-edit-form');
+for (const input of form.querySelectorAll('input')) assert.equal(input.inputMode, 'text', 'normal keyboard allows slash and colon');
+const entry = form.elements.cin_date, exit = form.elements.cout_date;
+entry.value = '22/10/2026';exit.value = '';
+const button = form.querySelector('[data-calendar-for="' + exit.id + '"]');
+button.click();
+const picker = d.querySelector('.attendance-calendar');
+assert(!picker.hidden);
+assert.equal(picker.querySelector('.attendance-calendar-month').textContent, 'אוקטובר 2026');
+assert.equal(picker.querySelectorAll('[data-calendar-day]').length, 31);
+picker.querySelector('[data-calendar-day="23"]').click();
+assert.equal(exit.value, '23/10/2026');assert.equal(entry.value, '22/10/2026');
+assert(picker.hidden);assert.equal(d.activeElement, button);
+exit.value = '28/02/2028';button.click();
+assert.equal(picker.querySelectorAll('[data-calendar-day]').length, 29, 'leap year');
+picker.querySelector('[data-calendar-step="1"]').click();
+assert.equal(picker.querySelector('.attendance-calendar-month').textContent, 'מרץ 2028');
+picker.querySelector('[data-calendar-close]').click();
+assert.equal(exit.value, '28/02/2028', 'cancel never changes attendance');
+exit.value = '31/12/2026';button.click();
+picker.querySelector('[data-calendar-step="1"]').click();
+assert.equal(picker.querySelector('.attendance-calendar-month').textContent, 'ינואר 2027');
+picker.querySelector('[data-calendar-day="1"]').click();
+assert.equal(exit.value, '01/01/2027');
+// Keyboard editing remains available, including digits-only compatibility.
+exit.value = '22';exit.checkValidity();assert.match(exit.validationMessage, /לוח השנה/);
+exit.value = '23/10/2026';exit.dispatchEvent(new w.Event('input', {bubbles:true}));assert(exit.checkValidity());
+entry.value = '22102026';entry.dispatchEvent(new w.FocusEvent('focusout', {bubbles:true}));assert.equal(entry.value, '22/10/2026');
+const replacement = form.cloneNode(true);form.replaceWith(replacement);
+replacement.querySelector('[data-calendar-for]').click();
+assert(!picker.hidden, 'calendar works after live report refresh');
+picker.dispatchEvent(new w.KeyboardEvent('keydown', {key:'Escape',bubbles:true}));assert(picker.hidden);
+console.log('PASS calendar selection, cancel, leap/year navigation, refreshed forms, and slash/colon keyboard input');
+w.close();

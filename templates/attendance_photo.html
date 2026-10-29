@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block c %}
+<style>
+.attendance-photo-title{font-size:24px;margin:0 0 16px}
+.attendance-photo-frame{margin:0;background:#050b14;border:1px solid #2b3850;border-radius:16px;overflow:hidden}
+.attendance-photo-frame img{display:block;width:100%;height:auto;max-height:70vh;max-height:70dvh;object-fit:contain}
+</style>
+<h1 class="attendance-photo-title">{{photo_title}}</h1>
+<figure class="attendance-photo-frame">
+  <img src="{{photo_url}}" alt="{{photo_title}}">
+</figure>
+<p><a class="back-home" href="{{back_url}}">← חזרה לדוח</a></p>
+{% endblock %}
