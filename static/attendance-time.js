@@ -1,5 +1,32 @@
 (function () {
   'use strict';
+  function fieldError(input, message) {
+    input.setCustomValidity(message);
+    input.setAttribute('aria-invalid', String(Boolean(message)));
+    const label = input.form.querySelector('[data-error-for="' + input.name + '"]');
+    if (label) label.textContent = message;
+  }
+  function validateExit(form) {
+    const day = form.elements.cout_date, clock = form.elements.cout_time;
+    const hasDay = Boolean(day.value.trim()), hasClock = Boolean(clock.value.trim());
+    day.required = hasClock;
+    clock.required = hasDay;
+    [[day, !hasDay && hasClock, 'חסר תאריך יציאה.'],
+     [clock, !hasClock && hasDay, 'חסרה שעת יציאה.']].forEach(([input, missing, message]) => {
+      if (missing) {
+        input.dataset.pairError = '1';
+        fieldError(input, message);
+      } else if (input.dataset.pairError) {
+        delete input.dataset.pairError;
+        fieldError(input, '');
+      }
+    });
+    return hasDay === hasClock;
+  }
+  function status(form, message) {
+    form.querySelector('.attendance-save-status').textContent = message;
+  }
+  document.querySelectorAll('.manual-edit-form').forEach(validateExit);
   // A normal keyboard keeps / and : available for direct editing.
   // Format on blur only, so moving the caret or deleting digits stays natural.
   // Delegation also covers report forms replaced by the existing live refresh.
@@ -14,16 +41,78 @@
     }
   });
   document.addEventListener('input', function (event) {
-    if (event.target.matches('.manual-edit-form input')) event.target.setCustomValidity('');
+    if (!event.target.matches('.manual-edit-form input')) return;
+    fieldError(event.target, '');
+    delete event.target.dataset.pairError;
+    validateExit(event.target.form);
   });
   document.addEventListener('invalid', function (event) {
     const input = event.target;
+    if (!input.matches('.manual-edit-form input')) return;
+    if (input.dataset.pairError) return;
     if (input.matches('[data-attendance-date]')) {
-      input.setCustomValidity('בחר תאריך בלוח השנה או הקלד תאריך מלא, לדוגמה 22/10/2026.');
+      fieldError(input, 'בחר תאריך בלוח השנה או הקלד תאריך מלא, לדוגמה 22/10/2026.');
     } else if (input.matches('[data-attendance-time]')) {
-      input.setCustomValidity('יש להקליד שעה, לדוגמה 19:02.');
+      fieldError(input, 'יש להקליד שעה, לדוגמה 19:02.');
     }
   }, true);
+  document.addEventListener('submit', async function (event) {
+    const form = event.target;
+    if (!form.matches('.manual-edit-form')) return;
+    event.preventDefault();
+    if (form.dataset.saving) return;
+    const complete = validateExit(form);
+    if (!form.reportValidity() || !complete) return;
+    // Signal the existing live refresh to retain this form, including after errors.
+    form.dispatchEvent(new Event('input', {bubbles:true}));
+    const body = new FormData(form);
+    const controls = Array.from(form.elements).map(input => [input, input.disabled]);
+    form.dataset.saving = '1';
+    form.setAttribute('aria-busy', 'true');
+    controls.forEach(([input]) => { input.disabled = true; });
+    status(form, 'שומר שעות…');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+    let destination;
+    try {
+      const response = await fetch(form.action, {
+        method:'POST', body, credentials:'same-origin', signal:controller.signal,
+        headers:{'X-Requested-With':'fetch', 'Accept':'application/json'}
+      });
+      if (response.redirected) throw new Error('unexpected redirect');
+      const result = await response.json();
+      if (!response.ok || result.ok !== true) {
+        status(form, result.error || 'השמירה נכשלה. העריכה נשארה בטופס.');
+        Object.entries(result.errors || {}).forEach(([name, message]) => {
+          const input = form.elements.namedItem(name);
+          if (input && typeof message === 'string') fieldError(input, message);
+        });
+      } else if (typeof result.redirect === 'string') {
+        destination = result.redirect;
+      } else {
+        throw new Error('missing save confirmation');
+      }
+    } catch (_) {
+      // Includes HTML error pages, expired sessions, disconnects and timeouts.
+      // Never reload or retry automatically: the server may have committed.
+      status(form, 'לא התקבל אישור שמירה. העריכה נשארה בטופס. בדוק את הדיווח לפני ניסיון נוסף.');
+    } finally {
+      clearTimeout(timeout);
+      controls.forEach(([input, disabled]) => { input.disabled = disabled; });
+      delete form.dataset.saving;
+      form.removeAttribute('aria-busy');
+    }
+    if (destination) {
+      const saved = new URL(destination, window.location.href);
+      if (saved.pathname === window.location.pathname && saved.search === window.location.search) {
+        // A hash-only navigation would leave the old totals and dirty form on screen.
+        window.history.replaceState(null, '', saved.href);
+        window.location.reload();
+      } else {
+        window.location.assign(destination);
+      }
+    }
+  });
 
   // Render our own calendar so the app does not depend on a WebView date picker.
   const months = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];

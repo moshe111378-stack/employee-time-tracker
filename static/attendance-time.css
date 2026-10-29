@@ -1,3 +1,14 @@
+.manual-edit-form{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.attendance-time-fields{border:0;padding:0;margin:0;min-width:0}
+.manual-edit-form label{display:block}
+.manual-edit-form input{width:100%;min-width:0}
+.attendance-time-help,.attendance-save-status,.manual-edit-form>button{grid-column:1/-1}
+.attendance-field-error,.attendance-save-status{color:#fca5a5;line-height:1.5}
+.attendance-field-error{display:block;min-height:1.5em}
+.attendance-save-status:empty{display:none}
+.manual-edit-form input[aria-invalid="true"]{border-color:#fca5a5}
+.manual-edit-form[aria-busy="true"]{opacity:.8}
+@media(max-width:600px){.manual-edit-form{grid-template-columns:1fr}}
 .attendance-date-control{display:flex;align-items:center;gap:8px;min-width:0}
 .attendance-date-control input{flex:1;min-width:0}
 .manual-edit-form .attendance-calendar-open{flex:0 0 48px;width:48px;min-height:48px;padding:10px;grid-column:auto;font-size:23px}

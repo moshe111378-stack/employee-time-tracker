@@ -34,5 +34,7 @@ jobs:
           node tests/worker_sync.test.cjs
           node tests/period_reports.test.cjs
           node tests/attendance_time.test.cjs
+          node tests/attendance_edit.test.cjs
+          node --check static/attendance-time.js
           node --check static/worker-sync.js
           node --check static/event-sync.js

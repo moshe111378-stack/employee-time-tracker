@@ -219,28 +219,55 @@ def ea(e):
 @app.post('/admin/event/<int:e>/report/<int:r>/edit')
 @adm
 def edit_attendance(e,r):
+ def failure(message,status=422,errors=None):
+  errors=errors or {}
+  if request.headers.get('X-Requested-With')=='fetch':
+   return jsonify(ok=False,error=message,errors=errors),status
+  # Render the submitted values directly, without a redirect or a database read.
+  # This also works when the database is temporarily unavailable.
+  values={key:request.form.get(key,'') for key in ('cin_date','cin_time','cout_date','cout_time')}
+  for prefix in ('cin','cout'):
+   if prefix+'_date' not in request.form and prefix+'_time' not in request.form:
+    legacy=request.form.get(prefix,'')
+    values[prefix+'_date']=legacy[8:10]+'/'+legacy[5:7]+'/'+legacy[:4] if legacy else ''
+    values[prefix+'_time']=legacy[11:] if legacy else ''
+  return render_template('attendance_edit_error.html',event={'id':e},r={'id':r,'cin':None,'cout':None},
+                         edit_values=values,edit_errors=errors,edit_message=message,
+                         back_url=f'/admin/event/{e}#report-{r}'),status
+ day=request.form.get('cout_date','').strip()
+ clock=request.form.get('cout_time','').strip()
+ if bool(day)!=bool(clock):
+  key='cout_time' if day else 'cout_date'
+  message='חסרה שעת יציאה.' if day else 'חסר תאריך יציאה.'
+  return failure(message,errors={key:message})
  try:
   cin=manager_form_time(request.form,'cin',required=True)
   cout=manager_form_time(request.form,'cout')
  except ValueError:
-  flash('יש להזין תאריך ושעה תקינים')
-  return redirect(f'/admin/event/{e}')
+  return failure('יש להזין תאריך ושעה תקינים. העריכה נשארה בטופס.')
  if cout and datetime.fromisoformat(cout)<=datetime.fromisoformat(cin):
-  flash('שעת היציאה חייבת להיות אחרי שעת הכניסה')
-  return redirect(f'/admin/event/{e}')
- c=con()
- row=c.execute('select * from att where id=? and event_id=?',(r,e)).fetchone()
- if not row:
-  c.close();abort(404)
- if not cout:
-  other=c.execute('select id from att where worker_id=? and cout is null and id<>? limit 1',(row['worker_id'],r)).fetchone()
-  if other:
-   c.close();flash('לעובד כבר יש דיווח פתוח אחר')
-   return redirect(f'/admin/event/{e}')
- edited_at=israel_now().isoformat(timespec='seconds')
- c.execute('update att set cin=?,cout=? where id=? and event_id=?',(cin,cout,r,e))
- c.execute('insert into att_edits(attendance_id,admin_id,admin_name,old_cin,old_cout,new_cin,new_cout,edited_at) values(?,?,?,?,?,?,?,?)',(r,session.get('aid'),session.get('aname','מנהל'),row['cin'],row['cout'],cin,cout,edited_at))
- c.commit();c.close();flash('השעות עודכנו ונשמרו עם סימון עריכת מנהל')
+  return failure('שעת היציאה חייבת להיות אחרי שעת הכניסה. למשמרת שחוצה חצות יש לבחור את תאריך היציאה המתאים.')
+ c=None
+ try:
+  c=con()
+  row=c.execute('select * from att where id=? and event_id=?',(r,e)).fetchone()
+  if not row:return failure('הדיווח לא נמצא. העריכה נשארה בטופס.',404)
+  if not cout:
+   other=c.execute('select id from att where worker_id=? and cout is null and id<>? limit 1',(row['worker_id'],r)).fetchone()
+   if other:return failure('לעובד כבר יש דיווח פתוח אחר. העריכה נשארה בטופס.',409)
+  edited_at=israel_now().isoformat(timespec='seconds')
+  c.execute('update att set cin=?,cout=? where id=? and event_id=?',(cin,cout,r,e))
+  c.execute('insert into att_edits(attendance_id,admin_id,admin_name,old_cin,old_cout,new_cin,new_cout,edited_at) values(?,?,?,?,?,?,?,?)',(r,session.get('aid'),session.get('aname','מנהל'),row['cin'],row['cout'],cin,cout,edited_at))
+  c.commit()
+ except sqlite3.Error:
+  if c:c.rollback()
+  app.logger.exception('Attendance edit could not be saved')
+  return failure('השמירה נכשלה. העריכה נשארה בטופס; אפשר לנסות שוב.',503)
+ finally:
+  if c:c.close()
+ flash('השעות עודכנו ונשמרו עם סימון עריכת מנהל')
+ if request.headers.get('X-Requested-With')=='fetch':
+  return jsonify(ok=True,redirect=f'/admin/event/{e}#report-{r}')
  return redirect(f'/admin/event/{e}')
 
 @app.post('/admin/event/<int:e>/report/<int:r>/delete')

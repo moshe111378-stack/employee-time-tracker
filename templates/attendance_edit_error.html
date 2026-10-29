@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block c %}
+<link rel="stylesheet" href="/static/attendance-time.css?v=20261029-validation">
+<section class="panel">
+  <h1>עריכת שעות כניסה ויציאה</h1>
+  <p>השעות לא נשמרו. הערכים שהזנת מוצגים כאן לתיקון ולניסיון נוסף.</p>
+  <details class="manual-edit" open>
+    <summary>העריכה שלך</summary>
+    <form action="/admin/event/{{event.id}}/report/{{r.id}}/edit" method="post" class="manual-edit-form">
+      {% include 'attendance_time_fields.html' %}
+      <button type="submit">שמור שעות</button>
+    </form>
+  </details>
+</section>
+{% endblock %}
+{% block scripts %}<script defer src="/static/attendance-time.js?v=20261029-validation"></script>{% endblock %}
